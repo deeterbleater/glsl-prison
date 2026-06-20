@@ -6,7 +6,10 @@ import App, { type AuthState } from './App';
 import { setAuthTokenProvider } from './lib/api';
 import './styles.css';
 
-const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+const DEFAULT_CLERK_PUBLISHABLE_KEY = 'pk_test_dG91Z2gtZWFyd2lnLTkuY2xlcmsuYWNjb3VudHMuZGV2JA';
+const clerkPublishableKey =
+  (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined) ||
+  DEFAULT_CLERK_PUBLISHABLE_KEY;
 const unauthenticatedState: AuthState = {
   enabled: false,
   loaded: true,
@@ -33,9 +36,9 @@ function ClerkSessionApp() {
         enabled: true,
         loaded: isLoaded,
         signedIn: Boolean(isSignedIn),
-        redirectToSignIn: () =>
-          clerk.redirectToSignIn({
-            signInFallbackRedirectUrl: window.location.href,
+        openSignIn: () =>
+          clerk.openSignIn({
+            fallbackRedirectUrl: window.location.href,
           }),
       }}
     />

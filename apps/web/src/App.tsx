@@ -117,7 +117,7 @@ export type AuthState = {
   enabled: boolean;
   loaded: boolean;
   signedIn: boolean;
-  redirectToSignIn?: () => Promise<unknown> | void;
+  openSignIn?: () => Promise<unknown> | void;
 };
 
 type UserMessage = {
@@ -232,6 +232,10 @@ function generationFailureDetail(message: AssistantMessage): string {
     return 'The model did not return a compilable shader on this attempt.';
   }
   return detail;
+}
+
+function isSignInRequiredError(error: unknown): boolean {
+  return error instanceof Error && /sign in required|unauthenticated|401/i.test(error.message);
 }
 
 function setAssistantMessage(
@@ -703,7 +707,7 @@ function HomePage({ auth }: { auth: AuthState }) {
     if (authBlocksGeneration) {
       window.localStorage.setItem('shader-oracle-pending-prompt', prompt);
       setError(undefined);
-      await auth.redirectToSignIn?.();
+      await auth.openSignIn?.();
       return;
     }
 
@@ -753,6 +757,17 @@ function HomePage({ auth }: { auth: AuthState }) {
         repairCount: 0,
       });
     } catch (generateError) {
+      if (isSignInRequiredError(generateError) && auth.openSignIn) {
+        window.localStorage.setItem('shader-oracle-pending-prompt', prompt);
+        setInput(prompt);
+        setMessages((current) =>
+          current.filter((message) => message.id !== userId && message.id !== assistantId),
+        );
+        setError(undefined);
+        await auth.openSignIn();
+        return;
+      }
+
       setAssistantMessage(setMessages, assistantId, {
         status: 'failed',
         compileLog:
