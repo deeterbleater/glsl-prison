@@ -150,12 +150,21 @@ a {
   gap: 8px;
 }
 
+.modelCatalogRow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .modelSelector label {
   color: #94a3ad;
   font-size: 12px;
 }
 
-.modelSelector input {
+.modelSelector input,
+.modelSelector select {
   min-width: 0;
   height: 34px;
   border: 1px solid rgba(237, 242, 244, 0.12);
@@ -166,7 +175,8 @@ a {
   background: #0c1015;
 }
 
-.modelSelector input:focus {
+.modelSelector input:focus,
+.modelSelector select:focus {
   border-color: rgba(123, 211, 234, 0.62);
 }
 
@@ -562,6 +572,14 @@ pre {
   }
 
   .modelInputRow span {
+    display: none;
+  }
+
+  .modelCatalogRow {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .modelCatalogRow span {
     display: none;
   }
 

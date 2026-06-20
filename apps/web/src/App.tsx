@@ -59,6 +59,19 @@ const FEATURED_MODEL_FALLBACKS: OpenRouterModelDto[] = [
     name: 'Google: Gemini 3.1 Pro',
     outputModalities: ['text'],
   },
+  {
+    id: 'z-ai/glm-5.2',
+    name: 'Z.ai: GLM 5.2',
+    outputModalities: ['text'],
+    reasoning: { supportedEfforts: ['xhigh', 'high'] },
+  },
+  { id: 'minimax/minimax-m3', name: 'MiniMax: MiniMax M3', outputModalities: ['text'] },
+  {
+    id: 'minimax/minimax-m2.7',
+    name: 'MiniMax: MiniMax M2.7',
+    outputModalities: ['text'],
+    reasoning: { mandatory: true },
+  },
   { id: 'x-ai/grok-4.3', name: 'xAI: Grok 4.3', outputModalities: ['text'] },
   { id: 'qwen/qwen3-coder-next', name: 'Qwen: Qwen3 Coder Next', outputModalities: ['text'] },
   {
@@ -67,7 +80,6 @@ const FEATURED_MODEL_FALLBACKS: OpenRouterModelDto[] = [
     outputModalities: ['text'],
   },
   { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek: DeepSeek V4 Pro', outputModalities: ['text'] },
-  { id: 'z-ai/glm-5.2', name: 'Z.ai: GLM 5.2', outputModalities: ['text'] },
   { id: 'openrouter/fusion', name: 'OpenRouter: Fusion', outputModalities: ['text'] },
   {
     id: 'cohere/north-mini-code:free',
@@ -82,16 +94,6 @@ const FEATURED_MODEL_FALLBACKS: OpenRouterModelDto[] = [
 ];
 
 const FEATURED_MODEL_IDS = FEATURED_MODEL_FALLBACKS.map((model) => model.id);
-const REASONING_EFFORTS: ReasoningEffort[] = [
-  'auto',
-  'none',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-];
-
 const EMPTY_STATS = {
   width: 0,
   height: 0,
@@ -127,6 +129,8 @@ type AssistantMessage = {
   model?: string;
   modelName?: string;
   compileLog?: string;
+  generationFailureCount?: number;
+  generationFailureLimit?: number;
   shareUrl?: string;
 };
 
@@ -177,7 +181,7 @@ function modelPriceLabel(model?: OpenRouterModelDto): string | undefined {
 function modelShortLabel(model: OpenRouterModelDto): string {
   return model.name
     .replace(
-      /^(OpenAI|Anthropic|Google|xAI|Qwen|MoonshotAI|DeepSeek|Z\.ai|OpenRouter|Cohere|NVIDIA):?\s*/i,
+      /^(OpenAI|Anthropic|Google|xAI|Qwen|MoonshotAI|DeepSeek|Z\.ai|MiniMax|OpenRouter|Cohere|NVIDIA):?\s*/i,
       '',
     )
     .replace(/\s*\((free|Fast)\)$/i, ' $1')
@@ -192,13 +196,10 @@ function mergeModels(primary: OpenRouterModelDto[], fallback: OpenRouterModelDto
 }
 
 function reasoningOptions(model?: OpenRouterModelDto): ReasoningEffort[] {
-  const supported = model?.reasoning?.supportedEfforts?.length
-    ? model.reasoning.supportedEfforts
-    : REASONING_EFFORTS.filter((effort) => effort !== 'auto' && effort !== 'none');
   const options: ReasoningEffort[] = ['auto'];
   if (!model?.reasoning?.mandatory) options.push('none');
 
-  for (const effort of supported) {
+  for (const effort of model?.reasoning?.supportedEfforts ?? []) {
     if (!options.includes(effort)) options.push(effort);
   }
 
@@ -208,6 +209,21 @@ function reasoningOptions(model?: OpenRouterModelDto): ReasoningEffort[] {
 function reasoningLabel(effort: ReasoningEffort): string {
   if (effort === 'none') return 'Off';
   return `${effort.charAt(0).toUpperCase()}${effort.slice(1)}`;
+}
+
+function generationFailureLabel(message: AssistantMessage): string {
+  const limit = message.generationFailureLimit ?? MAX_REPAIR_ATTEMPTS;
+  if (!message.generationFailureCount) return 'Generation failed.';
+  return `Generation failure: ${Math.min(message.generationFailureCount, limit)}/${limit}`;
+}
+
+function generationFailureDetail(message: AssistantMessage): string {
+  const detail = message.compileLog?.trim();
+  if (!detail) return 'No compiler log returned.';
+  if (message.generationFailureCount && /internal server error/i.test(detail)) {
+    return 'The model did not return a compilable shader on this attempt.';
+  }
+  return detail;
 }
 
 function setAssistantMessage(
@@ -232,12 +248,14 @@ function ModelSelector(props: {
   compact?: boolean;
 }) {
   const datalistId = props.compact ? 'openrouter-models-compact' : 'openrouter-models';
+  const catalogId = `${datalistId}-catalog`;
   const selectedModel = props.models.find((model) => model.id === props.value);
+  const selectedCatalogValue = selectedModel ? props.value : '';
   const price = modelPriceLabel(selectedModel);
   const featuredModels = props.featuredModelIds
     .map((id) => props.models.find((model) => model.id === id))
     .filter((model): model is OpenRouterModelDto => Boolean(model))
-    .slice(0, props.compact ? 6 : 10);
+    .slice(0, props.compact ? 8 : 16);
 
   return (
     <div className={props.compact ? 'modelSelector compact' : 'modelSelector'}>
@@ -259,6 +277,22 @@ function ModelSelector(props: {
           ))}
         </datalist>
         {price ? <span>{price}</span> : null}
+      </div>
+      <div className="modelCatalogRow">
+        <label htmlFor={catalogId}>Catalog</label>
+        <select
+          id={catalogId}
+          value={selectedCatalogValue}
+          onChange={(event) => props.onChange(event.target.value)}
+        >
+          {!selectedModel ? <option value="">typed model: {props.value}</option> : null}
+          {props.models.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name} - {model.id}
+            </option>
+          ))}
+        </select>
+        <span>{props.models.length} models</span>
       </div>
       <div className="modelChips">
         {featuredModels.map((model) => (
@@ -422,8 +456,8 @@ function AssistantShaderMessage({
         <div className="statusBubble failed">
           <AlertTriangle size={18} />
           <div>
-            <strong>Shader failed verification.</strong>
-            <pre>{message.compileLog || 'No compiler log returned.'}</pre>
+            <strong>{generationFailureLabel(message)}</strong>
+            <pre>{generationFailureDetail(message)}</pre>
           </div>
         </div>
       </article>
@@ -435,11 +469,13 @@ function AssistantShaderMessage({
       <div className="statusBubble">
         <LoaderCircle size={18} className="spin" />
         <span>
-          {message.status === 'repairing'
-            ? 'repairing shader'
-            : message.status === 'compiling'
-              ? 'compiling shader'
-              : 'asking the shader model'}
+          {message.status === 'repairing' && message.generationFailureCount
+            ? `${generationFailureLabel(message)}. Retrying shader`
+            : message.status === 'repairing'
+              ? 'repairing shader'
+              : message.status === 'compiling'
+                ? 'compiling shader'
+                : 'asking the shader model'}
         </span>
       </div>
     </article>
@@ -554,12 +590,17 @@ function HomePage() {
           model: pendingCompile.model,
           modelName: pendingCompile.modelName,
           compileLog: '',
+          generationFailureCount: undefined,
+          generationFailureLimit: undefined,
         });
         setPendingCompile(undefined);
         return;
       }
 
-      if (pendingCompile.repairCount >= MAX_REPAIR_ATTEMPTS) {
+      const generationFailureCount = pendingCompile.repairCount + 1;
+      const generationFailureLimit = MAX_REPAIR_ATTEMPTS;
+
+      if (generationFailureCount >= generationFailureLimit) {
         setAssistantMessage(setMessages, pendingCompile.messageId, {
           status: 'failed',
           runId: pendingCompile.runId,
@@ -568,12 +609,19 @@ function HomePage() {
           model: pendingCompile.model,
           modelName: pendingCompile.modelName,
           compileLog: snapshot.log,
+          generationFailureCount,
+          generationFailureLimit,
         });
         setPendingCompile(undefined);
         return;
       }
 
-      setAssistantMessage(setMessages, pendingCompile.messageId, { status: 'repairing' });
+      setAssistantMessage(setMessages, pendingCompile.messageId, {
+        status: 'repairing',
+        compileLog: snapshot.log,
+        generationFailureCount,
+        generationFailureLimit,
+      });
       try {
         const repaired = await repairShader(pendingCompile.attemptId, {
           compileLog: snapshot.log,
@@ -589,13 +637,15 @@ function HomePage() {
           model: repaired.model || pendingCompile.model,
           modelName: modelDisplayLabel(repaired.model || pendingCompile.model, models),
           reasoningEffort: pendingCompile.reasoningEffort,
-          repairCount: pendingCompile.repairCount + 1,
+          repairCount: generationFailureCount,
         });
-      } catch (repairError) {
+      } catch {
         setAssistantMessage(setMessages, pendingCompile.messageId, {
           status: 'failed',
           compileLog:
-            repairError instanceof Error ? repairError.message : 'Unable to repair shader.',
+            snapshot.log || 'The model did not return a compilable shader on this attempt.',
+          generationFailureCount,
+          generationFailureLimit,
         });
         setPendingCompile(undefined);
       }

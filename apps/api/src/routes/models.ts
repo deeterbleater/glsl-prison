@@ -24,6 +24,19 @@ const FEATURED_MODELS: OpenRouterModelDto[] = [
     name: 'Google: Gemini 3.1 Pro Preview',
     outputModalities: ['text'],
   },
+  {
+    id: 'z-ai/glm-5.2',
+    name: 'Z.ai: GLM 5.2',
+    outputModalities: ['text'],
+    reasoning: { supportedEfforts: ['xhigh', 'high'] },
+  },
+  { id: 'minimax/minimax-m3', name: 'MiniMax: MiniMax M3', outputModalities: ['text'] },
+  {
+    id: 'minimax/minimax-m2.7',
+    name: 'MiniMax: MiniMax M2.7',
+    outputModalities: ['text'],
+    reasoning: { mandatory: true },
+  },
   { id: 'x-ai/grok-4.3', name: 'xAI: Grok 4.3', outputModalities: ['text'] },
   { id: 'qwen/qwen3-coder-next', name: 'Qwen: Qwen3 Coder Next', outputModalities: ['text'] },
   {
@@ -32,7 +45,6 @@ const FEATURED_MODELS: OpenRouterModelDto[] = [
     outputModalities: ['text'],
   },
   { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek: DeepSeek V4 Pro', outputModalities: ['text'] },
-  { id: 'z-ai/glm-5.2', name: 'Z.ai: GLM 5.2', outputModalities: ['text'] },
   { id: 'openrouter/fusion', name: 'OpenRouter: Fusion', outputModalities: ['text'] },
   {
     id: 'cohere/north-mini-code:free',
