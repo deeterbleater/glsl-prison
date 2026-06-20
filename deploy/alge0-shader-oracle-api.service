@@ -1,0 +1,18 @@
+[Unit]
+Description=Shader Oracle API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/glsl-prison/apps/api
+EnvironmentFile=/root/glsl-prison/apps/api/.env
+ExecStartPre=/usr/bin/mkdir -p /root/glsl-prison/apps/api/logs
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+StandardOutput=append:/root/glsl-prison/apps/api/logs/api.log
+StandardError=append:/root/glsl-prison/apps/api/logs/api.log
+
+[Install]
+WantedBy=multi-user.target
