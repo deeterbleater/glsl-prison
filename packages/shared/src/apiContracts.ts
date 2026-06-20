@@ -75,6 +75,7 @@ export type ModelsResponse = {
   defaultModel: string;
   provider: string;
   models: OpenRouterModelDto[];
+  featuredModelIds: string[];
   fetchedAt: string;
 };
 

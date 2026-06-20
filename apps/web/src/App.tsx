@@ -35,9 +35,52 @@ import {
   reportCompileResult,
 } from './lib/api';
 
-const CHAR_LIMIT = 4000;
+const CHAR_LIMIT = 8000;
 const MAX_REPAIR_ATTEMPTS = 3;
 const DEFAULT_MODEL = 'openai/gpt-5.2';
+
+const FEATURED_MODEL_FALLBACKS: OpenRouterModelDto[] = [
+  { id: 'openai/gpt-5.2', name: 'OpenAI: GPT-5.2', outputModalities: ['text'] },
+  { id: 'openai/gpt-5.2-chat', name: 'OpenAI: GPT-5.2 Chat', outputModalities: ['text'] },
+  { id: 'openai/gpt-5.2-codex', name: 'OpenAI: GPT-5.2-Codex', outputModalities: ['text'] },
+  {
+    id: 'anthropic/claude-sonnet-4.6',
+    name: 'Anthropic: Claude Sonnet 4.6',
+    outputModalities: ['text'],
+  },
+  {
+    id: 'anthropic/claude-opus-4.8',
+    name: 'Anthropic: Claude Opus 4.8',
+    outputModalities: ['text'],
+  },
+  {
+    id: 'google/gemini-3.1-pro-preview',
+    name: 'Google: Gemini 3.1 Pro',
+    outputModalities: ['text'],
+  },
+  { id: 'x-ai/grok-4.3', name: 'xAI: Grok 4.3', outputModalities: ['text'] },
+  { id: 'qwen/qwen3-coder-next', name: 'Qwen: Qwen3 Coder Next', outputModalities: ['text'] },
+  {
+    id: 'moonshotai/kimi-k2.7-code',
+    name: 'MoonshotAI: Kimi K2.7 Code',
+    outputModalities: ['text'],
+  },
+  { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek: DeepSeek V4 Pro', outputModalities: ['text'] },
+  { id: 'z-ai/glm-5.2', name: 'Z.ai: GLM 5.2', outputModalities: ['text'] },
+  { id: 'openrouter/fusion', name: 'OpenRouter: Fusion', outputModalities: ['text'] },
+  {
+    id: 'cohere/north-mini-code:free',
+    name: 'Cohere: North Mini Code (free)',
+    outputModalities: ['text'],
+  },
+  {
+    id: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+    name: 'NVIDIA: Nemotron 3 Ultra (free)',
+    outputModalities: ['text'],
+  },
+];
+
+const FEATURED_MODEL_IDS = FEATURED_MODEL_FALLBACKS.map((model) => model.id);
 
 const EMPTY_STATS = {
   width: 0,
@@ -120,6 +163,23 @@ function modelPriceLabel(model?: OpenRouterModelDto): string | undefined {
   return `$${promptPrice.toFixed(2)} / $${completionPrice.toFixed(2)} per 1M`;
 }
 
+function modelShortLabel(model: OpenRouterModelDto): string {
+  return model.name
+    .replace(
+      /^(OpenAI|Anthropic|Google|xAI|Qwen|MoonshotAI|DeepSeek|Z\.ai|OpenRouter|Cohere|NVIDIA):?\s*/i,
+      '',
+    )
+    .replace(/\s*\((free|Fast)\)$/i, ' $1')
+    .replace('Preview', '')
+    .trim();
+}
+
+function mergeModels(primary: OpenRouterModelDto[], fallback: OpenRouterModelDto[]) {
+  const byId = new Map<string, OpenRouterModelDto>();
+  for (const model of [...fallback, ...primary]) byId.set(model.id, model);
+  return [...byId.values()];
+}
+
 function setAssistantMessage(
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
   messageId: string,
@@ -138,31 +198,51 @@ function ModelSelector(props: {
   value: string;
   onChange: (value: string) => void;
   models: OpenRouterModelDto[];
+  featuredModelIds: string[];
   compact?: boolean;
 }) {
   const datalistId = props.compact ? 'openrouter-models-compact' : 'openrouter-models';
   const selectedModel = props.models.find((model) => model.id === props.value);
   const price = modelPriceLabel(selectedModel);
+  const featuredModels = props.featuredModelIds
+    .map((id) => props.models.find((model) => model.id === id))
+    .filter((model): model is OpenRouterModelDto => Boolean(model))
+    .slice(0, props.compact ? 6 : 10);
 
   return (
     <div className={props.compact ? 'modelSelector compact' : 'modelSelector'}>
-      <label htmlFor={datalistId}>Model</label>
-      <input
-        id={datalistId}
-        list={`${datalistId}-options`}
-        value={props.value}
-        onChange={(event) => props.onChange(event.target.value)}
-        spellCheck={false}
-        placeholder="openai/gpt-5.2"
-      />
-      <datalist id={`${datalistId}-options`}>
-        {props.models.map((model) => (
-          <option key={model.id} value={model.id}>
-            {model.name}
-          </option>
+      <div className="modelInputRow">
+        <label htmlFor={datalistId}>Model</label>
+        <input
+          id={datalistId}
+          list={`${datalistId}-options`}
+          value={props.value}
+          onChange={(event) => props.onChange(event.target.value)}
+          spellCheck={false}
+          placeholder="openai/gpt-5.2"
+        />
+        <datalist id={`${datalistId}-options`}>
+          {props.models.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name}
+            </option>
+          ))}
+        </datalist>
+        {price ? <span>{price}</span> : null}
+      </div>
+      <div className="modelChips">
+        {featuredModels.map((model) => (
+          <button
+            key={model.id}
+            type="button"
+            className={model.id === props.value ? 'selected' : undefined}
+            title={model.id}
+            onClick={() => props.onChange(model.id)}
+          >
+            {modelShortLabel(model)}
+          </button>
         ))}
-      </datalist>
-      {price ? <span>{price}</span> : null}
+      </div>
     </div>
   );
 }
@@ -174,6 +254,7 @@ function ChatComposer(props: {
   selectedModel: string;
   onModelChange: (value: string) => void;
   models: OpenRouterModelDto[];
+  featuredModelIds: string[];
   disabled?: boolean;
   compact?: boolean;
 }) {
@@ -188,6 +269,7 @@ function ChatComposer(props: {
         value={props.selectedModel}
         onChange={props.onModelChange}
         models={props.models}
+        featuredModelIds={props.featuredModelIds}
         compact={props.compact}
       />
       <div className="composerInput">
@@ -277,7 +359,7 @@ function AssistantShaderMessage({
         <div className="statusBubble failed">
           <AlertTriangle size={18} />
           <div>
-            <strong>Shader failed to compile.</strong>
+            <strong>Shader failed verification.</strong>
             <pre>{message.compileLog || 'No compiler log returned.'}</pre>
           </div>
         </div>
@@ -307,7 +389,8 @@ function HomePage() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingCompile, setPendingCompile] = useState<PendingCompile>();
-  const [models, setModels] = useState<OpenRouterModelDto[]>([]);
+  const [models, setModels] = useState<OpenRouterModelDto[]>(FEATURED_MODEL_FALLBACKS);
+  const [featuredModelIds, setFeaturedModelIds] = useState(FEATURED_MODEL_IDS);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -345,13 +428,16 @@ function HomePage() {
     getModels()
       .then((response) => {
         if (cancelled) return;
-        setModels(response.models);
+        setModels(mergeModels(response.models, FEATURED_MODEL_FALLBACKS));
+        setFeaturedModelIds(
+          response.featuredModelIds?.length ? response.featuredModelIds : FEATURED_MODEL_IDS,
+        );
         setSelectedModel((current) => current.trim() || response.defaultModel || DEFAULT_MODEL);
       })
-      .catch((loadError: unknown) => {
+      .catch(() => {
         if (cancelled) return;
-        setModels([{ id: DEFAULT_MODEL, name: DEFAULT_MODEL, outputModalities: ['text'] }]);
-        setError(loadError instanceof Error ? loadError.message : 'Unable to load model list.');
+        setModels(FEATURED_MODEL_FALLBACKS);
+        setFeaturedModelIds(FEATURED_MODEL_IDS);
       });
 
     return () => {
@@ -536,6 +622,7 @@ function HomePage() {
             selectedModel={selectedModel}
             onModelChange={setSelectedModel}
             models={models}
+            featuredModelIds={featuredModelIds}
             disabled={busy}
           />
           <div className="promptChips">
@@ -575,6 +662,7 @@ function HomePage() {
               selectedModel={selectedModel}
               onModelChange={setSelectedModel}
               models={models}
+              featuredModelIds={featuredModelIds}
               disabled={busy || Boolean(pendingCompile)}
             />
           </div>

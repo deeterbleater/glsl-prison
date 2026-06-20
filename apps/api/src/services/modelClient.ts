@@ -122,7 +122,7 @@ ${body}
 }
 
 function maxTokensForCharLimit(charLimit: number): number {
-  return Math.max(180, Math.min(2200, Math.ceil(charLimit / 1.5)));
+  return Math.max(600, Math.min(6000, Math.ceil(charLimit / 1.3)));
 }
 
 function extractResponseText(response: any): string {

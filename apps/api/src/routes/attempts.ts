@@ -45,14 +45,22 @@ export async function registerAttemptRoutes(
       const compileLog = request.body?.compileLog?.trim() || previous.compileLog || '';
       const fragment = request.body?.fragment?.trim() || previous.fragment;
       const model = previous.model || previous.run.model || context.modelClient.defaultModel;
-      const repaired = await repairOnce({
-        modelClient: context.modelClient,
-        prompt: previous.run.prompt,
-        fragment,
-        compileLog,
-        model,
-        charLimit: 4000,
-      });
+      let repaired;
+      try {
+        repaired = await repairOnce({
+          modelClient: context.modelClient,
+          prompt: previous.run.prompt,
+          fragment,
+          compileLog,
+          model,
+          charLimit: 8000,
+        });
+      } catch (error) {
+        return reply.code(422).send({
+          ok: false,
+          error: error instanceof Error ? error.message : 'shader repair failed verification',
+        });
+      }
 
       const attempt = await context.repository.createAttempt({
         runId: previous.runId,

@@ -12,6 +12,7 @@ Do not write prose.
 Do not write Markdown.
 Return shader source only.
 You may define helper functions at top level before void main().
+Do not include comments.
 Use this fragment interface:
 #version 300 es
 precision highp float;
@@ -21,6 +22,7 @@ uniform vec4 m;
 out vec4 o;
 Compute normalized coordinates inside main, and assign the final image to o.
 Use GLSL ES 300 compatible syntax.
+Keep the source compact.
 Prefer procedural visuals, signed distance fields, raymarching, fields, palettes, compact math, and animation.
 The shader should visually answer the user's prompt.
 Avoid generic colorful noise unless the prompt explicitly asks for abstraction.`;
@@ -30,8 +32,10 @@ export const REPAIR_SYSTEM_PROMPT = `You repair GLSL ES 300 fragment shader sour
 Return only corrected fragment shader source.
 Do not include Markdown.
 Do not include prose.
+Do not include comments.
 You may define helper functions at top level before void main().
 Use the interface: #version 300 es, precision highp float, uniform vec2 r, uniform float t, uniform vec4 m, out vec4 o.
+Keep the source compact and under the requested character limit.
 The corrected shader must fit the original visual prompt.`;
 
 export const JUDGE_SYSTEM_PROMPT = `You judge whether a rendered GLSL shader visually satisfies a user's prompt.
@@ -55,6 +59,7 @@ export function generationUserPrompt(prompt: string, charLimit: number): string 
 "${prompt}"
 
 Keep the shader source under ${charLimit} characters.
+This character limit includes whitespace; use compact code and no comments.
 Return shader source only.`;
 }
 
@@ -76,5 +81,6 @@ Compiler log:
 ${input.compileLog}
 
 Keep the corrected shader source under ${input.charLimit} characters.
+This character limit includes whitespace; use compact code and no comments.
 Return corrected shader source only.`;
 }

@@ -137,10 +137,16 @@ a {
 .modelSelector {
   min-width: 0;
   display: grid;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.modelInputRow {
+  min-width: 0;
+  display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 0 2px;
 }
 
 .modelSelector label {
@@ -170,6 +176,36 @@ a {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.modelChips {
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.modelChips::-webkit-scrollbar {
+  display: none;
+}
+
+.modelChips button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  max-width: 150px;
+  overflow: hidden;
+  padding: 0 10px;
+  color: #c3cbd2;
+  background: rgba(23, 27, 33, 0.84);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelChips button.selected {
+  color: #101419;
+  background: #7bd3ea;
+  border-color: #7bd3ea;
 }
 
 .composerInput {
@@ -203,6 +239,22 @@ a {
   display: inline-grid;
   place-items: center;
   padding: 0;
+  color: #101419;
+  background: #7bd3ea;
+  border-color: #7bd3ea;
+}
+
+.composer .modelChips button {
+  width: auto;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  color: #c3cbd2;
+  background: rgba(23, 27, 33, 0.84);
+  border-color: rgba(237, 242, 244, 0.14);
+}
+
+.composer .modelChips button.selected {
   color: #101419;
   background: #7bd3ea;
   border-color: #7bd3ea;
@@ -474,11 +526,11 @@ pre {
     display: none;
   }
 
-  .modelSelector {
+  .modelInputRow {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .modelSelector span {
+  .modelInputRow span {
     display: none;
   }
 

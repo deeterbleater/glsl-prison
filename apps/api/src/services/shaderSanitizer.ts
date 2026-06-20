@@ -81,11 +81,17 @@ export function sanitizeFragmentShader(
   source: string,
   options: { charLimit?: number } = {},
 ): { ok: true; cleaned: string } | { ok: false; reason: string } {
-  const charLimit = options.charLimit ?? 4000;
+  const charLimit = options.charLimit ?? 8000;
   let cleaned = source.replace(/\r\n?/g, '\n').trim();
 
   const fenceMatch = cleaned.match(/^```(?:glsl|c|cpp|shader)?\s*\n([\s\S]*?)\n?```$/i);
   if (fenceMatch?.[1]) cleaned = fenceMatch[1].trim();
+  cleaned = stripComments(cleaned)
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
   if (cleaned.length === 0) return { ok: false, reason: 'empty shader source' };
   if (cleaned.length > charLimit) {
