@@ -44,6 +44,7 @@ export async function registerAttemptRoutes(
 
       const compileLog = request.body?.compileLog?.trim() || previous.compileLog || '';
       const fragment = request.body?.fragment?.trim() || previous.fragment;
+      const reasoningEffort = request.body?.reasoningEffort;
       const model = previous.model || previous.run.model || context.modelClient.defaultModel;
       let repaired;
       try {
@@ -54,6 +55,7 @@ export async function registerAttemptRoutes(
           compileLog,
           model,
           charLimit: 8000,
+          reasoningEffort,
         });
       } catch (error) {
         return reply.code(422).send({

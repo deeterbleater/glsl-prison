@@ -1,4 +1,4 @@
-import type { CaptureFrame, JudgeScore, ShaderStats } from '@shader-oracle/shared';
+import type { CaptureFrame, JudgeScore, ReasoningEffort, ShaderStats } from '@shader-oracle/shared';
 import type { Env } from '../env.js';
 import {
   GENERATION_SYSTEM_PROMPT,
@@ -13,6 +13,7 @@ export type GenerateShaderInput = {
   prompt: string;
   model: string;
   charLimit: number;
+  reasoningEffort?: ReasoningEffort;
 };
 
 export type RepairShaderInput = {
@@ -21,6 +22,7 @@ export type RepairShaderInput = {
   compileLog: string;
   model: string;
   charLimit: number;
+  reasoningEffort?: ReasoningEffort;
 };
 
 export type JudgeAttemptInput = {
@@ -41,6 +43,12 @@ type FetchResponse = {
   status: number;
   text(): Promise<string>;
   json(): Promise<unknown>;
+};
+
+type OpenRouterReasoning = {
+  effort?: Exclude<ReasoningEffort, 'auto'>;
+  enabled?: boolean;
+  exclude?: boolean;
 };
 
 export interface ModelClient {
@@ -286,6 +294,7 @@ class OpenRouterChatClient implements ModelClient {
       system: GENERATION_SYSTEM_PROMPT,
       user: generationUserPrompt(input.prompt, input.charLimit),
       maxTokens: maxTokensForCharLimit(input.charLimit),
+      reasoningEffort: input.reasoningEffort,
       temperature: 0.7,
     });
   }
@@ -296,6 +305,7 @@ class OpenRouterChatClient implements ModelClient {
       system: REPAIR_SYSTEM_PROMPT,
       user: repairUserPrompt(input),
       maxTokens: maxTokensForCharLimit(input.charLimit),
+      reasoningEffort: input.reasoningEffort,
       temperature: 0.35,
     });
   }
@@ -328,35 +338,47 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
     system: string;
     user: string;
     maxTokens: number;
+    reasoningEffort?: ReasoningEffort;
     temperature: number;
     responseFormat?: { type: 'json_object' };
   }): Promise<string> {
     if (!this.env.openrouterApiKey) throw new Error('OPENROUTER_API_KEY is not configured');
 
-    const response = (await fetch(this.endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.env.openrouterApiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': this.env.openrouterAppUrl,
-        'X-OpenRouter-Title': this.env.openrouterAppTitle,
-      },
-      body: JSON.stringify({
-        model: input.model,
-        messages: [
-          { role: 'system', content: input.system },
-          { role: 'user', content: input.user },
-        ],
-        max_tokens: input.maxTokens,
-        reasoning_effort: 'none',
-        temperature: input.temperature,
-        verbosity: 'low',
-        response_format: input.responseFormat,
-      }),
-    })) as FetchResponse;
+    const buildBody = (forceReasoning = false) => ({
+      model: input.model,
+      messages: [
+        { role: 'system', content: input.system },
+        { role: 'user', content: input.user },
+      ],
+      max_tokens: input.maxTokens,
+      reasoning: reasoningConfig(input.reasoningEffort, forceReasoning),
+      temperature: input.temperature,
+      response_format: input.responseFormat,
+    });
+
+    const fetchResponse = async (forceReasoning = false) =>
+      (await fetch(this.endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.env.openrouterApiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': this.env.openrouterAppUrl,
+          'X-OpenRouter-Title': this.env.openrouterAppTitle,
+        },
+        body: JSON.stringify(buildBody(forceReasoning)),
+      })) as FetchResponse;
+
+    let response = await fetchResponse();
+    let detail = '';
+    if (!response.ok) {
+      detail = await response.text();
+      if (/reasoning is mandatory/i.test(detail)) {
+        response = await fetchResponse(true);
+        detail = response.ok ? '' : await response.text();
+      }
+    }
 
     if (!response.ok) {
-      const detail = await response.text();
       throw new Error(`OpenRouter API error ${response.status}: ${detail.slice(0, 400)}`);
     }
 
@@ -388,6 +410,16 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
     }
     throw new Error('OpenRouter response contained no text output');
   }
+}
+
+function reasoningConfig(
+  effort: ReasoningEffort | undefined,
+  forceReasoning: boolean,
+): OpenRouterReasoning | undefined {
+  if (forceReasoning) return { enabled: true, exclude: true };
+  if (!effort || effort === 'auto') return undefined;
+  if (effort === 'none') return { effort: 'none' };
+  return { effort, exclude: true };
 }
 
 export function createModelClient(env: Env): ModelClient {

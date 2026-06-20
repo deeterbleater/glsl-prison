@@ -1,4 +1,4 @@
-import type { ModelsResponse, OpenRouterModelDto } from '@shader-oracle/shared';
+import type { ModelsResponse, OpenRouterModelDto, ReasoningEffort } from '@shader-oracle/shared';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from './context.js';
 
@@ -66,6 +66,13 @@ type OpenRouterModelPayload = {
     output_modalities?: unknown;
   };
   supported_parameters?: unknown;
+  reasoning?: {
+    supported_efforts?: unknown;
+    default_effort?: unknown;
+    default_enabled?: unknown;
+    mandatory?: unknown;
+    supports_max_tokens?: unknown;
+  };
 };
 
 type OpenRouterModelsPayload = {
@@ -89,6 +96,37 @@ function pricing(value: unknown): OpenRouterModelDto['pricing'] {
   };
 }
 
+function reasoningEffort(value: unknown): ReasoningEffort | undefined {
+  return value === 'none' ||
+    value === 'minimal' ||
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'xhigh'
+    ? value
+    : undefined;
+}
+
+function reasoningEfforts(value: unknown): ReasoningEffort[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const efforts = value
+    .map(reasoningEffort)
+    .filter((effort): effort is ReasoningEffort => Boolean(effort));
+  return efforts.length > 0 ? efforts : undefined;
+}
+
+function reasoning(value: OpenRouterModelPayload['reasoning']): OpenRouterModelDto['reasoning'] {
+  if (!value || typeof value !== 'object') return undefined;
+  return {
+    supportedEfforts: reasoningEfforts(value.supported_efforts),
+    defaultEffort: reasoningEffort(value.default_effort),
+    defaultEnabled: typeof value.default_enabled === 'boolean' ? value.default_enabled : undefined,
+    mandatory: typeof value.mandatory === 'boolean' ? value.mandatory : undefined,
+    supportsMaxTokens:
+      typeof value.supports_max_tokens === 'boolean' ? value.supports_max_tokens : undefined,
+  };
+}
+
 function normalizeModel(model: OpenRouterModelPayload): OpenRouterModelDto | undefined {
   if (typeof model.id !== 'string' || model.id.trim().length === 0) return undefined;
 
@@ -109,6 +147,7 @@ function normalizeModel(model: OpenRouterModelPayload): OpenRouterModelDto | und
     inputModalities: stringArray(model.architecture?.input_modalities),
     outputModalities,
     supportedParameters: stringArray(model.supported_parameters),
+    reasoning: reasoning(model.reasoning),
   };
 }
 

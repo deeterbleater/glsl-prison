@@ -30,7 +30,8 @@ body {
 
 button,
 textarea,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -206,6 +207,36 @@ a {
   color: #101419;
   background: #7bd3ea;
   border-color: #7bd3ea;
+}
+
+.reasoningSelector {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 180px) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.reasoningSelector label {
+  color: #94a3ad;
+  font-size: 12px;
+}
+
+.reasoningSelector select {
+  height: 32px;
+  min-width: 0;
+  border: 1px solid rgba(237, 242, 244, 0.12);
+  border-radius: 7px;
+  color: #edf2f4;
+  background: #0c1015;
+  outline: 0;
+  padding: 0 9px;
+}
+
+.reasoningSelector span {
+  color: #f3d56b;
+  font-size: 12px;
 }
 
 .composerInput {
@@ -531,6 +562,14 @@ pre {
   }
 
   .modelInputRow span {
+    display: none;
+  }
+
+  .reasoningSelector {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .reasoningSelector span {
     display: none;
   }
 

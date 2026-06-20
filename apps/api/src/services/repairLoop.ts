@@ -1,4 +1,5 @@
 import type { ModelClient } from './modelClient.js';
+import type { ReasoningEffort } from '@shader-oracle/shared';
 import { sanitizeFragmentShader } from './shaderSanitizer.js';
 
 type VerifiedShader = {
@@ -25,11 +26,13 @@ export async function generateWithVerification(input: {
   model: string;
   charLimit: number;
   maxRepairAttempts: number;
+  reasoningEffort?: ReasoningEffort;
 }): Promise<VerifiedShader> {
   const generated = await input.modelClient.generateShader({
     prompt: input.prompt,
     model: input.model,
     charLimit: input.charLimit,
+    reasoningEffort: input.reasoningEffort,
   });
   const sanitized = sanitizeFragmentShader(generated, { charLimit: input.charLimit });
   if (sanitized.ok) return { fragment: sanitized.cleaned, attempts: 1 };
@@ -42,6 +45,7 @@ export async function generateWithVerification(input: {
     model: input.model,
     charLimit: input.charLimit,
     maxAttempts: input.maxRepairAttempts,
+    reasoningEffort: input.reasoningEffort,
   });
 
   return { fragment: repaired.fragment, attempts: repaired.attempts + 1 };
@@ -54,6 +58,7 @@ export async function repairOnce(input: {
   compileLog: string;
   model: string;
   charLimit: number;
+  reasoningEffort?: ReasoningEffort;
 }): Promise<string> {
   const repaired = await repairWithVerification({
     ...input,
@@ -70,6 +75,7 @@ export async function repairWithVerification(input: {
   model: string;
   charLimit: number;
   maxAttempts: number;
+  reasoningEffort?: ReasoningEffort;
 }): Promise<VerifiedShader> {
   const reasons: string[] = [];
   let fragment = input.fragment;
@@ -82,6 +88,7 @@ export async function repairWithVerification(input: {
       compileLog,
       model: input.model,
       charLimit: input.charLimit,
+      reasoningEffort: input.reasoningEffort,
     });
     const sanitized = sanitizeFragmentShader(repaired, { charLimit: input.charLimit });
     if (sanitized.ok) return { fragment: sanitized.cleaned, attempts: attempt };

@@ -1,6 +1,8 @@
 import type { CaptureFrame, JudgeScore, RunDto, ShaderStats } from './types.js';
 import type { LegacyShaderMode, ShaderMode } from './shaderModes.js';
 
+export type ReasoningEffort = 'auto' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
 export type GenerateRequest = {
   prompt: string;
   mode?: ShaderMode | LegacyShaderMode;
@@ -9,6 +11,7 @@ export type GenerateRequest = {
     charLimit?: number;
     allowRepair?: boolean;
     maxRepairAttempts?: number;
+    reasoningEffort?: ReasoningEffort;
   };
 };
 
@@ -35,6 +38,7 @@ export type CompileResultRequest =
 export type RepairRequest = {
   compileLog: string;
   fragment: string;
+  reasoningEffort?: ReasoningEffort;
 };
 
 export type CaptureRequest = {
@@ -69,6 +73,13 @@ export type OpenRouterModelDto = {
   inputModalities?: string[];
   outputModalities?: string[];
   supportedParameters?: string[];
+  reasoning?: {
+    supportedEfforts?: ReasoningEffort[];
+    defaultEffort?: ReasoningEffort;
+    defaultEnabled?: boolean;
+    mandatory?: boolean;
+    supportsMaxTokens?: boolean;
+  };
 };
 
 export type ModelsResponse = {

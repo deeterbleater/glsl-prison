@@ -2,6 +2,7 @@ import type {
   CompileResultRequest,
   GenerateResponse,
   OpenRouterModelDto,
+  ReasoningEffort,
   RunDto,
 } from '@shader-oracle/shared';
 import {
@@ -81,6 +82,15 @@ const FEATURED_MODEL_FALLBACKS: OpenRouterModelDto[] = [
 ];
 
 const FEATURED_MODEL_IDS = FEATURED_MODEL_FALLBACKS.map((model) => model.id);
+const REASONING_EFFORTS: ReasoningEffort[] = [
+  'auto',
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+];
 
 const EMPTY_STATS = {
   width: 0,
@@ -130,6 +140,7 @@ type PendingCompile = {
   fragment: string;
   model: string;
   modelName?: string;
+  reasoningEffort: ReasoningEffort;
   repairCount: number;
 };
 
@@ -178,6 +189,25 @@ function mergeModels(primary: OpenRouterModelDto[], fallback: OpenRouterModelDto
   const byId = new Map<string, OpenRouterModelDto>();
   for (const model of [...fallback, ...primary]) byId.set(model.id, model);
   return [...byId.values()];
+}
+
+function reasoningOptions(model?: OpenRouterModelDto): ReasoningEffort[] {
+  const supported = model?.reasoning?.supportedEfforts?.length
+    ? model.reasoning.supportedEfforts
+    : REASONING_EFFORTS.filter((effort) => effort !== 'auto' && effort !== 'none');
+  const options: ReasoningEffort[] = ['auto'];
+  if (!model?.reasoning?.mandatory) options.push('none');
+
+  for (const effort of supported) {
+    if (!options.includes(effort)) options.push(effort);
+  }
+
+  return options;
+}
+
+function reasoningLabel(effort: ReasoningEffort): string {
+  if (effort === 'none') return 'Off';
+  return `${effort.charAt(0).toUpperCase()}${effort.slice(1)}`;
 }
 
 function setAssistantMessage(
@@ -247,6 +277,32 @@ function ModelSelector(props: {
   );
 }
 
+function ReasoningSelector(props: {
+  value: ReasoningEffort;
+  onChange: (value: ReasoningEffort) => void;
+  model?: OpenRouterModelDto;
+}) {
+  const options = reasoningOptions(props.model);
+
+  return (
+    <div className="reasoningSelector">
+      <label htmlFor="reasoning-effort">Reasoning</label>
+      <select
+        id="reasoning-effort"
+        value={options.includes(props.value) ? props.value : 'auto'}
+        onChange={(event) => props.onChange(event.target.value as ReasoningEffort)}
+      >
+        {options.map((effort) => (
+          <option key={effort} value={effort}>
+            {reasoningLabel(effort)}
+          </option>
+        ))}
+      </select>
+      {props.model?.reasoning?.mandatory ? <span>required</span> : null}
+    </div>
+  );
+}
+
 function ChatComposer(props: {
   value: string;
   onChange: (value: string) => void;
@@ -255,6 +311,8 @@ function ChatComposer(props: {
   onModelChange: (value: string) => void;
   models: OpenRouterModelDto[];
   featuredModelIds: string[];
+  reasoningEffort: ReasoningEffort;
+  onReasoningChange: (value: ReasoningEffort) => void;
   disabled?: boolean;
   compact?: boolean;
 }) {
@@ -271,6 +329,11 @@ function ChatComposer(props: {
         models={props.models}
         featuredModelIds={props.featuredModelIds}
         compact={props.compact}
+      />
+      <ReasoningSelector
+        value={props.reasoningEffort}
+        onChange={props.onReasoningChange}
+        model={props.models.find((model) => model.id === props.selectedModel)}
       />
       <div className="composerInput">
         <textarea
@@ -392,6 +455,7 @@ function HomePage() {
   const [models, setModels] = useState<OpenRouterModelDto[]>(FEATURED_MODEL_FALLBACKS);
   const [featuredModelIds, setFeaturedModelIds] = useState(FEATURED_MODEL_IDS);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('auto');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -452,6 +516,13 @@ function HomePage() {
     });
   }, [messages, pendingCompile]);
 
+  useEffect(() => {
+    const model = models.find((item) => item.id === selectedModel);
+    if (model?.reasoning?.mandatory && reasoningEffort === 'none') {
+      setReasoningEffort('auto');
+    }
+  }, [models, reasoningEffort, selectedModel]);
+
   const handleCompilerResult = useCallback(
     async (snapshot: CompileSnapshot) => {
       if (!pendingCompile || processedAttempts.current.has(pendingCompile.attemptId)) return;
@@ -507,6 +578,7 @@ function HomePage() {
         const repaired = await repairShader(pendingCompile.attemptId, {
           compileLog: snapshot.log,
           fragment: pendingCompile.fragment,
+          reasoningEffort: pendingCompile.reasoningEffort,
         });
         setPendingCompile({
           messageId: pendingCompile.messageId,
@@ -516,6 +588,7 @@ function HomePage() {
           fragment: repaired.fragment,
           model: repaired.model || pendingCompile.model,
           modelName: modelDisplayLabel(repaired.model || pendingCompile.model, models),
+          reasoningEffort: pendingCompile.reasoningEffort,
           repairCount: pendingCompile.repairCount + 1,
         });
       } catch (repairError) {
@@ -556,6 +629,7 @@ function HomePage() {
           charLimit: CHAR_LIMIT,
           allowRepair: true,
           maxRepairAttempts: MAX_REPAIR_ATTEMPTS,
+          reasoningEffort,
         },
       });
 
@@ -574,6 +648,7 @@ function HomePage() {
         fragment: response.fragment,
         model: response.model,
         modelName: modelDisplayLabel(response.model, models),
+        reasoningEffort,
         repairCount: 0,
       });
     } catch (generateError) {
@@ -623,6 +698,8 @@ function HomePage() {
             onModelChange={setSelectedModel}
             models={models}
             featuredModelIds={featuredModelIds}
+            reasoningEffort={reasoningEffort}
+            onReasoningChange={setReasoningEffort}
             disabled={busy}
           />
           <div className="promptChips">
@@ -663,6 +740,8 @@ function HomePage() {
               onModelChange={setSelectedModel}
               models={models}
               featuredModelIds={featuredModelIds}
+              reasoningEffort={reasoningEffort}
+              onReasoningChange={setReasoningEffort}
               disabled={busy || Boolean(pendingCompile)}
             />
           </div>

@@ -35,6 +35,7 @@ export async function registerGenerateRoutes(
         : requestedModel;
     const charLimit = charLimitFromRequest(body);
     const maxRepairAttempts = repairAttemptsFromRequest(body);
+    const reasoningEffort = body.constraints?.reasoningEffort;
 
     if (!prompt) {
       return reply.code(400).send({ ok: false, error: 'prompt is required' });
@@ -51,6 +52,7 @@ export async function registerGenerateRoutes(
         model,
         charLimit,
         maxRepairAttempts,
+        reasoningEffort,
       });
     } catch (error) {
       return reply.code(generationErrorStatus(error)).send({
