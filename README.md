@@ -29,8 +29,10 @@ pnpm --filter @shader-oracle/api prisma:migrate
 Copy `apps/web/.env.example` to `apps/web/.env` and set:
 
 ```txt
-VITE_API_BASE_URL=http://localhost:8080
+VITE_API_BASE_URL=https://api.ufotoken.app
 ```
+
+When running the frontend on localhost without this variable, it automatically uses `http://localhost:8080`. Hosted builds default to `https://api.ufotoken.app`.
 
 ## Model Provider
 
@@ -57,6 +59,13 @@ Output directory: apps/web/dist
 ```
 
 Do not point the Vercel project at `apps/api`; the API is intended for the Vultr host.
+
+Set the production API CORS env to include the hosted chat client:
+
+```txt
+CORS_ORIGIN=https://glsl.chat,https://www.glsl.chat
+PUBLIC_WEB_BASE_URL=https://glsl.chat
+```
 
 Backend target:
 

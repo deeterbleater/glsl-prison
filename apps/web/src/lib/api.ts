@@ -10,10 +10,15 @@ import type {
   RunResponse,
 } from '@shader-oracle/shared';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080').replace(
-  /\/$/,
-  '',
-);
+function defaultApiBaseUrl(): string {
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:8080';
+  }
+
+  return 'https://api.ufotoken.app';
+}
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl()).replace(/\/$/, '');
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {

@@ -31,10 +31,20 @@ function intFromEnv(name: string, fallback: number): number {
 }
 
 export function loadEnv(): Env {
-  const corsOrigins = (process.env.CORS_ORIGIN ?? 'http://localhost:5173')
+  const configuredCorsOrigins = (
+    process.env.CORS_ORIGIN ?? 'http://localhost:5173,https://glsl.chat,https://www.glsl.chat'
+  )
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+  const corsOrigins = Array.from(
+    new Set([
+      ...configuredCorsOrigins,
+      'http://localhost:5173',
+      'https://glsl.chat',
+      'https://www.glsl.chat',
+    ]),
+  );
 
   return {
     nodeEnv: process.env.NODE_ENV ?? 'development',

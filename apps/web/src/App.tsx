@@ -1,37 +1,30 @@
-import type {
-  AttemptDto,
-  CompileResultRequest,
-  JudgeResponse,
-  RunDto,
-  ShaderLengthMode,
-} from '@shader-oracle/shared';
+import type { CompileResultRequest, GenerateResponse, RunDto } from '@shader-oracle/shared';
 import {
-  CheckCircle2,
+  AlertTriangle,
+  Code2,
   Copy,
   ExternalLink,
   GitFork,
-  Play,
-  RefreshCw,
+  LoaderCircle,
+  Send,
   Share2,
   Sparkles,
-  Wand2,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ShaderCanvas,
-  type CompileSnapshot,
-  type ShaderCanvasHandle,
-} from './components/ShaderCanvas';
-import {
-  generateShader,
-  getRun,
-  judgeAttempt,
-  publishRun,
-  repairShader,
-  reportCompileResult,
-  uploadCapture,
-} from './lib/api';
-import { SAMPLE_FRAGMENT_BODY } from './lib/shader/boilerplate';
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { ShaderCanvas, type CompileSnapshot } from './components/ShaderCanvas';
+import { generateShader, getRun, publishRun, repairShader, reportCompileResult } from './lib/api';
+
+const CHAR_LIMIT = 4000;
+const MAX_REPAIR_ATTEMPTS = 3;
 
 const EMPTY_STATS = {
   width: 0,
@@ -42,76 +35,201 @@ const EMPTY_STATS = {
   temporalDelta: 0,
 };
 
-const LENGTH_LIMITS: Record<ShaderLengthMode, number> = {
-  classic: 4000,
-  tweet: 280,
-  cruelty: 180,
-};
-
 const PROMPT_EXAMPLES = [
-  'Explain gradient descent visually.',
-  'A solar system teaching orbital resonance.',
-  'Show packet loss in a noisy network.',
-  'Make recursion feel like a mirror maze.',
+  'A tiny moon reflecting across dark water.',
+  'Explain gradient descent as a moving landscape.',
+  'A neon circuit board dreaming in pulses.',
+  'Show packet loss as a storm over a city grid.',
 ];
 
 type AppMode = 'home' | 'share';
+
+type UserMessage = {
+  id: string;
+  role: 'user';
+  content: string;
+};
+
+type AssistantMessage = {
+  id: string;
+  role: 'assistant';
+  status: 'generating' | 'compiling' | 'repairing' | 'ready' | 'failed';
+  prompt: string;
+  fragment?: string;
+  runId?: string;
+  attemptId?: string;
+  compileLog?: string;
+  shareUrl?: string;
+};
+
+type ChatMessage = UserMessage | AssistantMessage;
+
+type PendingCompile = {
+  messageId: string;
+  prompt: string;
+  runId: string;
+  attemptId: string;
+  fragment: string;
+  repairCount: number;
+};
 
 function currentRoute(): { mode: AppMode; runId?: string } {
   const match = window.location.pathname.match(/^\/r\/([^/]+)/);
   return match?.[1] ? { mode: 'share', runId: match[1] } : { mode: 'home' };
 }
 
-function latestAttempt(run?: RunDto): AttemptDto | undefined {
+function makeId(prefix: string): string {
+  return `${prefix}_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+}
+
+function latestAttempt(run?: RunDto) {
   if (!run || run.attempts.length === 0) return undefined;
   return run.attempts[run.attempts.length - 1];
 }
 
-function statusText(attempt?: AttemptDto): string {
-  if (!attempt) return 'Draft';
-  if (attempt.status === 'compile_failed') return 'Compile failed';
-  if (attempt.status === 'compiled') return 'Compiled';
-  if (attempt.status === 'judged') return 'Judged';
-  return 'Generated';
+function setAssistantMessage(
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
+  messageId: string,
+  update: Partial<AssistantMessage>,
+) {
+  setMessages((messages) =>
+    messages.map((message) =>
+      message.id === messageId && message.role === 'assistant'
+        ? { ...message, ...update }
+        : message,
+    ),
+  );
 }
 
-function IconButton(props: {
-  title: string;
-  onClick?: () => void;
+function ChatComposer(props: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
   disabled?: boolean;
-  children: React.ReactNode;
-  tone?: 'primary' | 'plain';
+  compact?: boolean;
 }) {
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    props.onSubmit();
+  }
+
   return (
-    <button
-      className={props.tone === 'primary' ? 'iconButton primary' : 'iconButton'}
-      type="button"
-      title={props.title}
-      aria-label={props.title}
-      onClick={props.onClick}
-      disabled={props.disabled}
-    >
-      {props.children}
-    </button>
+    <form className={props.compact ? 'composer compact' : 'composer'} onSubmit={submit}>
+      <textarea
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value)}
+        placeholder="Ask for a shader..."
+        rows={props.compact ? 2 : 4}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            props.onSubmit();
+          }
+        }}
+      />
+      <button
+        type="submit"
+        aria-label="Send prompt"
+        disabled={props.disabled || !props.value.trim()}
+      >
+        {props.disabled ? <LoaderCircle size={19} className="spin" /> : <Send size={19} />}
+      </button>
+    </form>
+  );
+}
+
+function AssistantShaderMessage({
+  message,
+  onCopy,
+  onPublish,
+}: {
+  message: AssistantMessage;
+  onCopy: (fragment: string) => void;
+  onPublish: (messageId: string, runId: string) => void;
+}) {
+  if (message.status === 'ready' && message.fragment) {
+    return (
+      <article className="message assistant shaderMessage">
+        <div className="shaderBubble">
+          <div className="shaderMeta">
+            <span>compiled shader</span>
+            <div className="shaderActions">
+              <button
+                type="button"
+                aria-label="Copy shader"
+                onClick={() => onCopy(message.fragment ?? '')}
+              >
+                <Copy size={16} />
+              </button>
+              {message.runId ? (
+                <button
+                  type="button"
+                  aria-label="Publish shader"
+                  onClick={() => onPublish(message.id, message.runId ?? '')}
+                >
+                  <Share2 size={16} />
+                </button>
+              ) : null}
+              {message.shareUrl ? (
+                <a aria-label="Open share page" href={message.shareUrl}>
+                  <ExternalLink size={16} />
+                </a>
+              ) : null}
+            </div>
+          </div>
+          <ShaderCanvas fragment={message.fragment} />
+          <details className="sourceDetails">
+            <summary>
+              <Code2 size={15} />
+              GLSL body
+            </summary>
+            <pre>{message.fragment}</pre>
+          </details>
+        </div>
+      </article>
+    );
+  }
+
+  if (message.status === 'failed') {
+    return (
+      <article className="message assistant">
+        <div className="statusBubble failed">
+          <AlertTriangle size={18} />
+          <div>
+            <strong>Shader failed to compile.</strong>
+            <pre>{message.compileLog || 'No compiler log returned.'}</pre>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
+  return (
+    <article className="message assistant">
+      <div className="statusBubble">
+        <LoaderCircle size={18} className="spin" />
+        <span>
+          {message.status === 'repairing'
+            ? 'repairing shader'
+            : message.status === 'compiling'
+              ? 'compiling shader'
+              : 'asking the shader model'}
+        </span>
+      </div>
+    </article>
   );
 }
 
 function HomePage() {
-  const canvasRef = useRef<ShaderCanvasHandle | null>(null);
-  const reportedAttempts = useRef(new Set<string>());
-  const [prompt, setPrompt] = useState(PROMPT_EXAMPLES[0] ?? '');
-  const [lengthMode, setLengthMode] = useState<ShaderLengthMode>('classic');
-  const [fragment, setFragment] = useState(SAMPLE_FRAGMENT_BODY);
-  const [run, setRun] = useState<RunDto>();
-  const [currentAttemptId, setCurrentAttemptId] = useState<string>();
-  const [compile, setCompile] = useState<CompileSnapshot>({ ok: true, log: '' });
-  const [judge, setJudge] = useState<JudgeResponse>();
-  const [shareUrl, setShareUrl] = useState<string>();
-  const [busy, setBusy] = useState<string>();
+  const processedAttempts = useRef(new Set<string>());
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pendingCompile, setPendingCompile] = useState<PendingCompile>();
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
-  const attempt = useMemo(() => latestAttempt(run), [run]);
-  const charLimit = LENGTH_LIMITS[lengthMode];
+  const hasChatStarted = messages.length > 0;
 
   useEffect(() => {
     const forked = window.localStorage.getItem('shader-oracle-fork');
@@ -119,22 +237,33 @@ function HomePage() {
     window.localStorage.removeItem('shader-oracle-fork');
     try {
       const parsed = JSON.parse(forked) as { prompt?: string; fragment?: string };
-      if (parsed.prompt) setPrompt(parsed.prompt);
-      if (parsed.fragment) setFragment(parsed.fragment);
+      if (!parsed.prompt || !parsed.fragment) return;
+      setMessages([
+        { id: makeId('usr'), role: 'user', content: parsed.prompt },
+        {
+          id: makeId('ast'),
+          role: 'assistant',
+          status: 'ready',
+          prompt: parsed.prompt,
+          fragment: parsed.fragment,
+        },
+      ]);
     } catch {
-      // Ignore malformed local fork payloads.
+      setError('Unable to load forked shader.');
     }
   }, []);
 
-  const refreshRun = useCallback(async (runId: string) => {
-    setRun(await getRun(runId));
-  }, []);
+  useEffect(() => {
+    transcriptRef.current?.scrollTo({
+      top: transcriptRef.current.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, [messages, pendingCompile]);
 
-  const handleCompile = useCallback(
+  const handleCompilerResult = useCallback(
     async (snapshot: CompileSnapshot) => {
-      setCompile(snapshot);
-      if (!currentAttemptId || reportedAttempts.current.has(currentAttemptId)) return;
-      reportedAttempts.current.add(currentAttemptId);
+      if (!pendingCompile || processedAttempts.current.has(pendingCompile.attemptId)) return;
+      processedAttempts.current.add(pendingCompile.attemptId);
 
       const payload: CompileResultRequest = snapshot.ok
         ? {
@@ -147,243 +276,192 @@ function HomePage() {
             compileLog: snapshot.log,
           };
 
+      await reportCompileResult(pendingCompile.attemptId, payload).catch((reportError: unknown) => {
+        setError(
+          reportError instanceof Error ? reportError.message : 'Unable to report compile result.',
+        );
+      });
+
+      if (snapshot.ok) {
+        setAssistantMessage(setMessages, pendingCompile.messageId, {
+          status: 'ready',
+          runId: pendingCompile.runId,
+          attemptId: pendingCompile.attemptId,
+          fragment: pendingCompile.fragment,
+          compileLog: '',
+        });
+        setPendingCompile(undefined);
+        return;
+      }
+
+      if (pendingCompile.repairCount >= MAX_REPAIR_ATTEMPTS) {
+        setAssistantMessage(setMessages, pendingCompile.messageId, {
+          status: 'failed',
+          runId: pendingCompile.runId,
+          attemptId: pendingCompile.attemptId,
+          fragment: pendingCompile.fragment,
+          compileLog: snapshot.log,
+        });
+        setPendingCompile(undefined);
+        return;
+      }
+
+      setAssistantMessage(setMessages, pendingCompile.messageId, { status: 'repairing' });
       try {
-        await reportCompileResult(currentAttemptId, payload);
-        if (run?.id) await refreshRun(run.id);
-      } catch (apiError) {
-        setError(apiError instanceof Error ? apiError.message : 'Unable to report compile result');
+        const repaired = await repairShader(pendingCompile.attemptId, {
+          compileLog: snapshot.log,
+          fragment: pendingCompile.fragment,
+        });
+        setPendingCompile({
+          messageId: pendingCompile.messageId,
+          prompt: pendingCompile.prompt,
+          runId: repaired.runId,
+          attemptId: repaired.attemptId,
+          fragment: repaired.fragment,
+          repairCount: pendingCompile.repairCount + 1,
+        });
+      } catch (repairError) {
+        setAssistantMessage(setMessages, pendingCompile.messageId, {
+          status: 'failed',
+          compileLog:
+            repairError instanceof Error ? repairError.message : 'Unable to repair shader.',
+        });
+        setPendingCompile(undefined);
       }
     },
-    [currentAttemptId, refreshRun, run?.id],
+    [pendingCompile],
   );
 
-  async function act<T>(label: string, action: () => Promise<T>): Promise<T | undefined> {
-    setBusy(label);
-    setError(undefined);
-    try {
-      return await action();
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : `Unable to ${label}`);
-      return undefined;
-    } finally {
-      setBusy(undefined);
-    }
-  }
+  async function sendPrompt(promptOverride?: string) {
+    const prompt = (promptOverride ?? input).trim();
+    if (!prompt || busy) return;
 
-  async function onGenerate() {
-    const response = await act('generate', () =>
-      generateShader({
+    const userId = makeId('usr');
+    const assistantId = makeId('ast');
+    setInput('');
+    setError(undefined);
+    setBusy(true);
+    setMessages((current) => [
+      ...current,
+      { id: userId, role: 'user', content: prompt },
+      { id: assistantId, role: 'assistant', status: 'generating', prompt },
+    ]);
+
+    try {
+      const response: GenerateResponse = await generateShader({
         prompt,
         mode: 'body',
         model: 'default',
-        constraints: { charLimit, allowRepair: true, maxRepairAttempts: 3 },
-      }),
-    );
-    if (!response) return;
-    setCurrentAttemptId(response.attemptId);
-    setFragment(response.fragment);
-    setJudge(undefined);
-    setShareUrl(undefined);
-    await refreshRun(response.runId);
+        constraints: {
+          charLimit: CHAR_LIMIT,
+          allowRepair: true,
+          maxRepairAttempts: MAX_REPAIR_ATTEMPTS,
+        },
+      });
+
+      setAssistantMessage(setMessages, assistantId, {
+        status: 'compiling',
+        runId: response.runId,
+        attemptId: response.attemptId,
+      });
+      setPendingCompile({
+        messageId: assistantId,
+        prompt,
+        runId: response.runId,
+        attemptId: response.attemptId,
+        fragment: response.fragment,
+        repairCount: 0,
+      });
+    } catch (generateError) {
+      setAssistantMessage(setMessages, assistantId, {
+        status: 'failed',
+        compileLog:
+          generateError instanceof Error ? generateError.message : 'Unable to generate shader.',
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function onRepair() {
-    if (!currentAttemptId) return;
-    const response = await act('repair', () =>
-      repairShader(currentAttemptId, {
-        compileLog: compile.log,
-        fragment,
-      }),
-    );
-    if (!response) return;
-    setCurrentAttemptId(response.attemptId);
-    setFragment(response.fragment);
-    setJudge(undefined);
-    if (run?.id) await refreshRun(run.id);
+  async function copyShader(fragment: string) {
+    await navigator.clipboard.writeText(fragment);
   }
 
-  async function onJudge() {
-    if (!currentAttemptId || !canvasRef.current) return;
-    const frames = await act(
-      'capture',
-      () => canvasRef.current?.captureFrames() ?? Promise.resolve([]),
-    );
-    if (!frames || frames.length === 0) return;
-    await act('upload capture', () => uploadCapture(currentAttemptId, { frames }));
-    const result = await act('judge', () =>
-      judgeAttempt(currentAttemptId, { judgeModel: 'default' }),
-    );
-    if (!result) return;
-    setJudge(result);
-    if (run?.id) await refreshRun(run.id);
-  }
-
-  async function onPublish() {
-    if (!run?.id) return;
-    const response = await act('publish', () => publishRun(run.id, true));
-    if (response) setShareUrl(response.shareUrl);
+  async function publishMessage(messageId: string, runId: string) {
+    try {
+      const response = await publishRun(runId, true);
+      setAssistantMessage(setMessages, messageId, { shareUrl: response.shareUrl });
+    } catch (publishError) {
+      setError(publishError instanceof Error ? publishError.message : 'Unable to publish shader.');
+    }
   }
 
   return (
-    <main className="appFrame">
-      <section className="workbench">
-        <div className="leftPane">
-          <div className="topBar">
-            <div>
-              <p className="eyebrow">Shader Oracle</p>
-              <h1>Prompt in. Fragment shader out.</h1>
-            </div>
-            <span className={compile.ok ? 'status good' : 'status bad'}>{statusText(attempt)}</span>
+    <main className={hasChatStarted ? 'chatApp active' : 'chatApp'}>
+      <header className="chatHeader">
+        <a href="/" className="brandMark">
+          glsl.chat
+        </a>
+        <span>shader-only model output</span>
+      </header>
+
+      {!hasChatStarted ? (
+        <section className="landingChat">
+          <div className="landingTitle">
+            <Sparkles size={26} />
+            <h1>What should the shader say?</h1>
           </div>
-
-          <label className="fieldLabel" htmlFor="prompt">
-            Prompt
-          </label>
-          <textarea
-            id="prompt"
-            className="promptInput"
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            rows={4}
+          <ChatComposer
+            value={input}
+            onChange={setInput}
+            onSubmit={() => void sendPrompt()}
+            disabled={busy}
           />
-
-          <div className="exampleRow">
+          <div className="promptChips">
             {PROMPT_EXAMPLES.map((example) => (
-              <button key={example} type="button" onClick={() => setPrompt(example)}>
+              <button key={example} type="button" onClick={() => void sendPrompt(example)}>
                 {example}
               </button>
             ))}
           </div>
-
-          <div className="toolbar">
-            <div className="segmented" aria-label="Shader length mode">
-              {(['classic', 'tweet', 'cruelty'] as ShaderLengthMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={lengthMode === mode ? 'active' : ''}
-                  onClick={() => setLengthMode(mode)}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-            <div className="toolbarActions">
-              <IconButton
-                title="Copy shader"
-                onClick={() => void navigator.clipboard.writeText(fragment)}
-              >
-                <Copy size={18} />
-              </IconButton>
-              <IconButton
-                title="Generate shader"
-                onClick={() => void onGenerate()}
-                disabled={Boolean(busy)}
-                tone="primary"
-              >
-                {busy === 'generate' ? (
-                  <RefreshCw size={18} className="spin" />
-                ) : (
-                  <Sparkles size={18} />
-                )}
-              </IconButton>
-            </div>
-          </div>
-
-          <label className="fieldLabel" htmlFor="shader">
-            Shader body{' '}
-            <span>
-              {fragment.length}/{charLimit}
-            </span>
-          </label>
-          <textarea
-            id="shader"
-            className="shaderEditor"
-            spellCheck={false}
-            value={fragment}
-            maxLength={charLimit}
-            onChange={(event) => setFragment(event.target.value)}
-          />
-
-          <div className="actionRail">
-            <button type="button" onClick={() => void onGenerate()} disabled={Boolean(busy)}>
-              <Play size={17} />
-              Generate
-            </button>
-            <button
-              type="button"
-              onClick={() => void onRepair()}
-              disabled={compile.ok || !currentAttemptId || Boolean(busy)}
-            >
-              <Wand2 size={17} />
-              Repair
-            </button>
-            <button
-              type="button"
-              onClick={() => void onJudge()}
-              disabled={!compile.ok || !currentAttemptId || Boolean(busy)}
-            >
-              <CheckCircle2 size={17} />
-              Judge
-            </button>
-            <button
-              type="button"
-              onClick={() => void onPublish()}
-              disabled={!run?.id || Boolean(busy)}
-            >
-              <Share2 size={17} />
-              Publish
-            </button>
-          </div>
-        </div>
-
-        <div className="rightPane">
-          <ShaderCanvas ref={canvasRef} fragment={fragment} onCompile={handleCompile} />
-          <div className="diagnostics">
-            <div>
-              <h2>Compile Log</h2>
-              <pre>{compile.ok ? 'OK' : compile.log}</pre>
-            </div>
-            <div>
-              <h2>Attempt History</h2>
-              <div className="attemptList">
-                {run?.attempts.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={item.id === currentAttemptId ? 'active' : ''}
-                    onClick={() => {
-                      setCurrentAttemptId(item.id);
-                      setFragment(item.fragment);
-                    }}
-                  >
-                    <span>#{item.attemptNumber}</span>
-                    <span>{item.status}</span>
-                  </button>
-                )) ?? <p>No saved attempts yet.</p>}
-              </div>
-            </div>
-            <div>
-              <h2>Judge</h2>
-              {(judge ?? attempt?.score) ? (
-                <div className="scoreGrid">
-                  <strong>{judge?.score.overall ?? attempt?.score?.overall ?? '-'}/10</strong>
-                  <p>{judge?.critique ?? attempt?.critique}</p>
-                </div>
-              ) : (
-                <p>Compile a shader, capture frames, then judge.</p>
-              )}
-            </div>
-          </div>
-          {shareUrl ? (
-            <a className="shareLink" href={shareUrl}>
-              <ExternalLink size={16} />
-              {shareUrl}
-            </a>
-          ) : null}
           {error ? <div className="errorBanner">{error}</div> : null}
+        </section>
+      ) : (
+        <section className="chatShell">
+          <div className="transcript" ref={transcriptRef}>
+            {messages.map((message) =>
+              message.role === 'user' ? (
+                <article className="message user" key={message.id}>
+                  <div className="textBubble">{message.content}</div>
+                </article>
+              ) : (
+                <AssistantShaderMessage
+                  key={message.id}
+                  message={message}
+                  onCopy={(fragment) => void copyShader(fragment)}
+                  onPublish={(messageId, runId) => void publishMessage(messageId, runId)}
+                />
+              ),
+            )}
+          </div>
+          {error ? <div className="errorBanner">{error}</div> : null}
+          <div className="composerDock">
+            <ChatComposer
+              compact
+              value={input}
+              onChange={setInput}
+              onSubmit={() => void sendPrompt()}
+              disabled={busy || Boolean(pendingCompile)}
+            />
+          </div>
+        </section>
+      )}
+
+      {pendingCompile ? (
+        <div className="compilerStage" aria-hidden="true">
+          <ShaderCanvas fragment={pendingCompile.fragment} onCompile={handleCompilerResult} />
         </div>
-      </section>
+      ) : null}
     </main>
   );
 }
@@ -400,30 +478,30 @@ function SharePage({ runId }: { runId: string }) {
       });
   }, [runId]);
 
-  const attempt = latestAttempt(run);
+  const attempt = useMemo(() => latestAttempt(run), [run]);
 
   if (error)
     return (
-      <main className="appFrame">
+      <main className="chatApp active">
         <div className="errorBanner">{error}</div>
       </main>
     );
   if (!run || !attempt)
     return (
-      <main className="appFrame">
+      <main className="chatApp active">
         <p className="loading">Loading shader...</p>
       </main>
     );
 
   return (
-    <main className="appFrame shareFrame">
-      <section className="shareHeader">
-        <div>
-          <p className="eyebrow">Shared Shader</p>
-          <h1>{run.prompt}</h1>
-        </div>
+    <main className="chatApp active">
+      <header className="chatHeader">
+        <a href="/" className="brandMark">
+          glsl.chat
+        </a>
         <button
           type="button"
+          className="forkButton"
           onClick={() => {
             window.localStorage.setItem(
               'shader-oracle-fork',
@@ -432,23 +510,30 @@ function SharePage({ runId }: { runId: string }) {
             window.location.href = '/';
           }}
         >
-          <GitFork size={17} />
+          <GitFork size={16} />
           Fork
         </button>
-      </section>
+      </header>
 
-      <section className="shareGrid">
-        <ShaderCanvas fragment={attempt.fragment} />
-        <div className="sourcePanel">
-          <h2>Shader Body</h2>
-          <pre>{attempt.fragment}</pre>
-          {attempt.score ? (
-            <div className="scoreGrid">
-              <strong>{attempt.score.overall ?? '-'}/10</strong>
-              <p>{attempt.critique}</p>
+      <section className="shareTranscript">
+        <article className="message user">
+          <div className="textBubble">{run.prompt}</div>
+        </article>
+        <article className="message assistant shaderMessage">
+          <div className="shaderBubble">
+            <div className="shaderMeta">
+              <span>shared shader</span>
             </div>
-          ) : null}
-        </div>
+            <ShaderCanvas fragment={attempt.fragment} />
+            <details className="sourceDetails">
+              <summary>
+                <Code2 size={15} />
+                GLSL body
+              </summary>
+              <pre>{attempt.fragment}</pre>
+            </details>
+          </div>
+        </article>
       </section>
     </main>
   );
