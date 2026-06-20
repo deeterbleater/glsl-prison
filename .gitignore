@@ -1,0 +1,24 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+
+# Local secrets and machine-specific config.
+**/.env
+**/.env.*
+!**/.env.example
+*.env
+*.local
+.envrc
+.npmrc
+*.pem
+*.key
+*.p8
+*.p12
+secrets/
+
+.vercel/
+apps/api/src/db/dev.db
+apps/api/src/db/dev.db-journal
+apps/api/src/generated/

@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Run {
+  id        String    @id
+  prompt    String
+  mode      String
+  model     String?
+  public    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  attempts  Attempt[]
+}
+
+model Attempt {
+  id            String    @id
+  runId         String
+  run           Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  attemptNumber Int
+  fragment      String
+  mode          String
+  model         String?
+  status        String
+  compileOk     Boolean?
+  compileLog    String?
+  statsJson     Json?
+  scoreJson     Json?
+  critique      String?
+  createdAt     DateTime  @default(now())
+  captures      Capture[]
+
+  @@index([runId])
+}
+
+model Capture {
+  id        String   @id
+  attemptId String
+  attempt   Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  t         Float
+  imageUrl  String?
+  dataUrl   String?
+  createdAt DateTime @default(now())
+
+  @@index([attemptId])
+}

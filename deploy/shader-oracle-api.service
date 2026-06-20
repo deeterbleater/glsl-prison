@@ -1,0 +1,17 @@
+[Unit]
+Description=Shader Oracle API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/shader-oracle/api
+EnvironmentFile=/opt/shader-oracle/api/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+User=shaderoracle
+Group=shaderoracle
+
+[Install]
+WantedBy=multi-user.target
+
