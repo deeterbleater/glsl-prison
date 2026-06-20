@@ -1,4 +1,5 @@
-export type ShaderMode = 'body';
+export type ShaderMode = 'fragment';
+export type LegacyShaderMode = 'body';
 
 export type ShaderLengthMode = 'classic' | 'tweet' | 'cruelty';
 

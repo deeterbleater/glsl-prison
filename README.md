@@ -1,6 +1,6 @@
 # Shader Oracle
 
-Shader Oracle is a Vite/React + Fastify monorepo where the model answers prompts by producing executable GLSL ES 300 fragment shader body code. The browser wraps, compiles, renders, captures, and reports diagnostics; the API stores runs and attempts, repairs failed shaders, and judges successful attempts.
+Shader Oracle is a Vite/React + Fastify monorepo where the model answers prompts by producing executable GLSL ES 300 fragment shader source. The browser normalizes, compiles, renders, captures, and reports diagnostics; the API stores runs and attempts, repairs failed shaders, and judges successful attempts.
 
 ## Workspace
 
@@ -45,7 +45,7 @@ OPENROUTER_API_KEY=...
 OPENROUTER_DEFAULT_MODEL=openai/gpt-5.2
 ```
 
-The core invariant is strict: model output is shader body code, not prose. Backend sanitation strips Markdown fences, enforces body mode, rejects forbidden GLSL declarations/tokens, rejects unbounded loops, and caps loop bounds at `128`.
+The core invariant is strict: model output is shader source, not prose. Backend sanitation strips Markdown fences, allows helper functions in fragment source, rejects unsupported GLSL declarations/tokens, rejects unbounded loops, and caps loop bounds at `128`.
 
 ## Deploy
 

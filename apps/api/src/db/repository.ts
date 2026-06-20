@@ -3,6 +3,7 @@ import type {
   CaptureFrame,
   JudgeScore,
   RunDto,
+  ShaderMode,
   ShaderStats,
 } from '@shader-oracle/shared';
 import type { Env } from '../env.js';
@@ -12,7 +13,7 @@ import { prisma } from './prisma.js';
 type RunRecord = {
   id: string;
   prompt: string;
-  mode: 'body';
+  mode: ShaderMode;
   model?: string;
   public: boolean;
   createdAt: Date;
@@ -25,7 +26,7 @@ type AttemptRecord = {
   runId: string;
   attemptNumber: number;
   fragment: string;
-  mode: 'body';
+  mode: ShaderMode;
   model?: string;
   status: AttemptStatus;
   compileOk?: boolean;
@@ -48,14 +49,14 @@ type CaptureRecord = {
 export type CreateRunInput = {
   prompt: string;
   fragment: string;
-  mode: 'body';
+  mode: ShaderMode;
   model: string;
 };
 
 export type CreateAttemptInput = {
   runId: string;
   fragment: string;
-  mode: 'body';
+  mode: ShaderMode;
   model: string;
 };
 
@@ -104,6 +105,11 @@ function toRunDto(run: RunRecord): RunDto {
         createdAt: attempt.createdAt.toISOString(),
       })),
   };
+}
+
+function normalizeMode(mode?: string | null): ShaderMode {
+  void mode;
+  return 'fragment';
 }
 
 class MemoryRepository implements Repository {
@@ -247,11 +253,11 @@ class PrismaRepository implements Repository {
     });
     const dto = toRunDto({
       ...run,
-      mode: 'body',
+      mode: normalizeMode(run.mode),
       model: run.model ?? undefined,
       attempts: run.attempts.map((attempt) => ({
         ...attempt,
-        mode: 'body',
+        mode: normalizeMode(attempt.mode),
         model: attempt.model ?? undefined,
         status: attempt.status as AttemptStatus,
         compileOk: attempt.compileOk ?? undefined,
@@ -290,7 +296,7 @@ class PrismaRepository implements Repository {
       runId: attempt.runId,
       attemptNumber: attempt.attemptNumber,
       fragment: attempt.fragment,
-      mode: 'body',
+      mode: normalizeMode(attempt.mode),
       model: attempt.model ?? undefined,
       status: 'generated',
       createdAt: attempt.createdAt,
@@ -305,14 +311,14 @@ class PrismaRepository implements Repository {
     if (!run) return undefined;
     return toRunDto({
       ...run,
-      mode: 'body',
+      mode: normalizeMode(run.mode),
       model: run.model ?? undefined,
       attempts: run.attempts.map((attempt) => ({
         id: attempt.id,
         runId: attempt.runId,
         attemptNumber: attempt.attemptNumber,
         fragment: attempt.fragment,
-        mode: 'body',
+        mode: normalizeMode(attempt.mode),
         model: attempt.model ?? undefined,
         status: attempt.status as AttemptStatus,
         compileOk: attempt.compileOk ?? undefined,
@@ -333,14 +339,14 @@ class PrismaRepository implements Repository {
     if (!attempt) return undefined;
     const run: RunRecord = {
       ...attempt.run,
-      mode: 'body',
+      mode: normalizeMode(attempt.run.mode),
       model: attempt.run.model ?? undefined,
       attempts: attempt.run.attempts.map((item) => ({
         id: item.id,
         runId: item.runId,
         attemptNumber: item.attemptNumber,
         fragment: item.fragment,
-        mode: 'body',
+        mode: normalizeMode(item.mode),
         model: item.model ?? undefined,
         status: item.status as AttemptStatus,
         compileOk: item.compileOk ?? undefined,
@@ -356,7 +362,7 @@ class PrismaRepository implements Repository {
       runId: attempt.runId,
       attemptNumber: attempt.attemptNumber,
       fragment: attempt.fragment,
-      mode: 'body',
+      mode: normalizeMode(attempt.mode),
       model: attempt.model ?? undefined,
       status: attempt.status as AttemptStatus,
       compileOk: attempt.compileOk ?? undefined,

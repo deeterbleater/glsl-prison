@@ -1,5 +1,5 @@
 import type { ModelClient } from './modelClient.js';
-import { sanitizeShaderBody } from './shaderSanitizer.js';
+import { sanitizeFragmentShader } from './shaderSanitizer.js';
 
 export async function repairOnce(input: {
   modelClient: ModelClient;
@@ -16,7 +16,7 @@ export async function repairOnce(input: {
     model: input.model,
     charLimit: input.charLimit,
   });
-  const sanitized = sanitizeShaderBody(repaired, { charLimit: input.charLimit });
+  const sanitized = sanitizeFragmentShader(repaired, { charLimit: input.charLimit });
   if (!sanitized.ok) throw new Error(`Repaired shader rejected: ${sanitized.reason}`);
   return sanitized.cleaned;
 }

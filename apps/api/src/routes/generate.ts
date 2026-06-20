@@ -1,7 +1,7 @@
 import type { GenerateRequest } from '@shader-oracle/shared';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from './context.js';
-import { sanitizeShaderBody } from '../services/shaderSanitizer.js';
+import { sanitizeFragmentShader } from '../services/shaderSanitizer.js';
 
 function charLimitFromRequest(body: GenerateRequest): number {
   const requested = body.constraints?.charLimit;
@@ -16,7 +16,7 @@ export async function registerGenerateRoutes(
   app.post<{ Body: GenerateRequest }>('/generate', async (request, reply) => {
     const body = request.body;
     const prompt = body?.prompt?.trim();
-    const mode = body?.mode ?? 'body';
+    const mode = body?.mode ?? 'fragment';
     const requestedModel = body?.model?.trim();
     const model =
       !requestedModel || requestedModel === 'default'
@@ -27,12 +27,12 @@ export async function registerGenerateRoutes(
     if (!prompt) {
       return reply.code(400).send({ ok: false, error: 'prompt is required' });
     }
-    if (mode !== 'body') {
-      return reply.code(400).send({ ok: false, error: 'only body mode is supported in MVP' });
+    if (mode !== 'fragment' && mode !== 'body') {
+      return reply.code(400).send({ ok: false, error: 'only fragment mode is supported' });
     }
 
     const raw = await context.modelClient.generateShader({ prompt, model, charLimit });
-    const sanitized = sanitizeShaderBody(raw, { charLimit });
+    const sanitized = sanitizeFragmentShader(raw, { charLimit });
     if (!sanitized.ok) {
       return reply.code(422).send({ ok: false, error: sanitized.reason });
     }
@@ -40,7 +40,7 @@ export async function registerGenerateRoutes(
     const { attempt } = await context.repository.createRunWithAttempt({
       prompt,
       fragment: sanitized.cleaned,
-      mode: 'body',
+      mode: 'fragment',
       model,
     });
 
@@ -48,7 +48,7 @@ export async function registerGenerateRoutes(
       runId: attempt.runId,
       attemptId: attempt.id,
       fragment: sanitized.cleaned,
-      mode: 'body',
+      mode: 'fragment',
       model,
       status: 'generated',
     };

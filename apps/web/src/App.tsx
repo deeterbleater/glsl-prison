@@ -1,4 +1,9 @@
-import type { CompileResultRequest, GenerateResponse, RunDto } from '@shader-oracle/shared';
+import type {
+  CompileResultRequest,
+  GenerateResponse,
+  OpenRouterModelDto,
+  RunDto,
+} from '@shader-oracle/shared';
 import {
   AlertTriangle,
   Code2,
@@ -21,10 +26,18 @@ import {
   useState,
 } from 'react';
 import { ShaderCanvas, type CompileSnapshot } from './components/ShaderCanvas';
-import { generateShader, getRun, publishRun, repairShader, reportCompileResult } from './lib/api';
+import {
+  generateShader,
+  getModels,
+  getRun,
+  publishRun,
+  repairShader,
+  reportCompileResult,
+} from './lib/api';
 
 const CHAR_LIMIT = 4000;
 const MAX_REPAIR_ATTEMPTS = 3;
+const DEFAULT_MODEL = 'openai/gpt-5.2';
 
 const EMPTY_STATS = {
   width: 0,
@@ -58,6 +71,8 @@ type AssistantMessage = {
   fragment?: string;
   runId?: string;
   attemptId?: string;
+  model?: string;
+  modelName?: string;
   compileLog?: string;
   shareUrl?: string;
 };
@@ -70,6 +85,8 @@ type PendingCompile = {
   runId: string;
   attemptId: string;
   fragment: string;
+  model: string;
+  modelName?: string;
   repairCount: number;
 };
 
@@ -87,6 +104,22 @@ function latestAttempt(run?: RunDto) {
   return run.attempts[run.attempts.length - 1];
 }
 
+function modelDisplayLabel(modelId: string | undefined, models: OpenRouterModelDto[]): string {
+  if (!modelId) return 'shader model';
+  const model = models.find((item) => item.id === modelId);
+  if (!model?.name || model.name === modelId) return modelId;
+  return `${model.name} (${modelId})`;
+}
+
+function modelPriceLabel(model?: OpenRouterModelDto): string | undefined {
+  if (!model?.pricing?.prompt || !model.pricing.completion) return undefined;
+  const promptPrice = Number(model.pricing.prompt) * 1_000_000;
+  const completionPrice = Number(model.pricing.completion) * 1_000_000;
+  if (!Number.isFinite(promptPrice) || !Number.isFinite(completionPrice)) return undefined;
+  if (promptPrice === 0 && completionPrice === 0) return 'free';
+  return `$${promptPrice.toFixed(2)} / $${completionPrice.toFixed(2)} per 1M`;
+}
+
 function setAssistantMessage(
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
   messageId: string,
@@ -101,10 +134,46 @@ function setAssistantMessage(
   );
 }
 
+function ModelSelector(props: {
+  value: string;
+  onChange: (value: string) => void;
+  models: OpenRouterModelDto[];
+  compact?: boolean;
+}) {
+  const datalistId = props.compact ? 'openrouter-models-compact' : 'openrouter-models';
+  const selectedModel = props.models.find((model) => model.id === props.value);
+  const price = modelPriceLabel(selectedModel);
+
+  return (
+    <div className={props.compact ? 'modelSelector compact' : 'modelSelector'}>
+      <label htmlFor={datalistId}>Model</label>
+      <input
+        id={datalistId}
+        list={`${datalistId}-options`}
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value)}
+        spellCheck={false}
+        placeholder="openai/gpt-5.2"
+      />
+      <datalist id={`${datalistId}-options`}>
+        {props.models.map((model) => (
+          <option key={model.id} value={model.id}>
+            {model.name}
+          </option>
+        ))}
+      </datalist>
+      {price ? <span>{price}</span> : null}
+    </div>
+  );
+}
+
 function ChatComposer(props: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  selectedModel: string;
+  onModelChange: (value: string) => void;
+  models: OpenRouterModelDto[];
   disabled?: boolean;
   compact?: boolean;
 }) {
@@ -115,25 +184,33 @@ function ChatComposer(props: {
 
   return (
     <form className={props.compact ? 'composer compact' : 'composer'} onSubmit={submit}>
-      <textarea
-        value={props.value}
-        onChange={(event) => props.onChange(event.target.value)}
-        placeholder="Ask for a shader..."
-        rows={props.compact ? 2 : 4}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            props.onSubmit();
-          }
-        }}
+      <ModelSelector
+        value={props.selectedModel}
+        onChange={props.onModelChange}
+        models={props.models}
+        compact={props.compact}
       />
-      <button
-        type="submit"
-        aria-label="Send prompt"
-        disabled={props.disabled || !props.value.trim()}
-      >
-        {props.disabled ? <LoaderCircle size={19} className="spin" /> : <Send size={19} />}
-      </button>
+      <div className="composerInput">
+        <textarea
+          value={props.value}
+          onChange={(event) => props.onChange(event.target.value)}
+          placeholder="Ask for a shader..."
+          rows={props.compact ? 2 : 4}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              props.onSubmit();
+            }
+          }}
+        />
+        <button
+          type="submit"
+          aria-label="Send prompt"
+          disabled={props.disabled || !props.value.trim()}
+        >
+          {props.disabled ? <LoaderCircle size={19} className="spin" /> : <Send size={19} />}
+        </button>
+      </div>
     </form>
   );
 }
@@ -147,12 +224,16 @@ function AssistantShaderMessage({
   onCopy: (fragment: string) => void;
   onPublish: (messageId: string, runId: string) => void;
 }) {
+  const modelLabel = message.modelName || message.model || 'compiled shader';
+
   if (message.status === 'ready' && message.fragment) {
     return (
       <article className="message assistant shaderMessage">
         <div className="shaderBubble">
           <div className="shaderMeta">
-            <span>compiled shader</span>
+            <span className="shaderModel" title={message.model}>
+              {modelLabel}
+            </span>
             <div className="shaderActions">
               <button
                 type="button"
@@ -181,7 +262,7 @@ function AssistantShaderMessage({
           <details className="sourceDetails">
             <summary>
               <Code2 size={15} />
-              GLSL body
+              GLSL source
             </summary>
             <pre>{message.fragment}</pre>
           </details>
@@ -226,6 +307,8 @@ function HomePage() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingCompile, setPendingCompile] = useState<PendingCompile>();
+  const [models, setModels] = useState<OpenRouterModelDto[]>([]);
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -236,8 +319,9 @@ function HomePage() {
     if (!forked) return;
     window.localStorage.removeItem('shader-oracle-fork');
     try {
-      const parsed = JSON.parse(forked) as { prompt?: string; fragment?: string };
+      const parsed = JSON.parse(forked) as { prompt?: string; fragment?: string; model?: string };
       if (!parsed.prompt || !parsed.fragment) return;
+      if (parsed.model) setSelectedModel(parsed.model);
       setMessages([
         { id: makeId('usr'), role: 'user', content: parsed.prompt },
         {
@@ -246,11 +330,33 @@ function HomePage() {
           status: 'ready',
           prompt: parsed.prompt,
           fragment: parsed.fragment,
+          model: parsed.model,
+          modelName: parsed.model,
         },
       ]);
     } catch {
       setError('Unable to load forked shader.');
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getModels()
+      .then((response) => {
+        if (cancelled) return;
+        setModels(response.models);
+        setSelectedModel((current) => current.trim() || response.defaultModel || DEFAULT_MODEL);
+      })
+      .catch((loadError: unknown) => {
+        if (cancelled) return;
+        setModels([{ id: DEFAULT_MODEL, name: DEFAULT_MODEL, outputModalities: ['text'] }]);
+        setError(loadError instanceof Error ? loadError.message : 'Unable to load model list.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -288,6 +394,8 @@ function HomePage() {
           runId: pendingCompile.runId,
           attemptId: pendingCompile.attemptId,
           fragment: pendingCompile.fragment,
+          model: pendingCompile.model,
+          modelName: pendingCompile.modelName,
           compileLog: '',
         });
         setPendingCompile(undefined);
@@ -300,6 +408,8 @@ function HomePage() {
           runId: pendingCompile.runId,
           attemptId: pendingCompile.attemptId,
           fragment: pendingCompile.fragment,
+          model: pendingCompile.model,
+          modelName: pendingCompile.modelName,
           compileLog: snapshot.log,
         });
         setPendingCompile(undefined);
@@ -318,6 +428,8 @@ function HomePage() {
           runId: repaired.runId,
           attemptId: repaired.attemptId,
           fragment: repaired.fragment,
+          model: repaired.model || pendingCompile.model,
+          modelName: modelDisplayLabel(repaired.model || pendingCompile.model, models),
           repairCount: pendingCompile.repairCount + 1,
         });
       } catch (repairError) {
@@ -329,12 +441,14 @@ function HomePage() {
         setPendingCompile(undefined);
       }
     },
-    [pendingCompile],
+    [models, pendingCompile],
   );
 
   async function sendPrompt(promptOverride?: string) {
     const prompt = (promptOverride ?? input).trim();
     if (!prompt || busy) return;
+    const model = selectedModel.trim() || DEFAULT_MODEL;
+    const modelName = modelDisplayLabel(model, models);
 
     const userId = makeId('usr');
     const assistantId = makeId('ast');
@@ -344,14 +458,14 @@ function HomePage() {
     setMessages((current) => [
       ...current,
       { id: userId, role: 'user', content: prompt },
-      { id: assistantId, role: 'assistant', status: 'generating', prompt },
+      { id: assistantId, role: 'assistant', status: 'generating', prompt, model, modelName },
     ]);
 
     try {
       const response: GenerateResponse = await generateShader({
         prompt,
-        mode: 'body',
-        model: 'default',
+        mode: 'fragment',
+        model,
         constraints: {
           charLimit: CHAR_LIMIT,
           allowRepair: true,
@@ -363,6 +477,8 @@ function HomePage() {
         status: 'compiling',
         runId: response.runId,
         attemptId: response.attemptId,
+        model: response.model,
+        modelName: modelDisplayLabel(response.model, models),
       });
       setPendingCompile({
         messageId: assistantId,
@@ -370,6 +486,8 @@ function HomePage() {
         runId: response.runId,
         attemptId: response.attemptId,
         fragment: response.fragment,
+        model: response.model,
+        modelName: modelDisplayLabel(response.model, models),
         repairCount: 0,
       });
     } catch (generateError) {
@@ -415,6 +533,9 @@ function HomePage() {
             value={input}
             onChange={setInput}
             onSubmit={() => void sendPrompt()}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+            models={models}
             disabled={busy}
           />
           <div className="promptChips">
@@ -451,6 +572,9 @@ function HomePage() {
               value={input}
               onChange={setInput}
               onSubmit={() => void sendPrompt()}
+              selectedModel={selectedModel}
+              onModelChange={setSelectedModel}
+              models={models}
               disabled={busy || Boolean(pendingCompile)}
             />
           </div>
@@ -505,7 +629,11 @@ function SharePage({ runId }: { runId: string }) {
           onClick={() => {
             window.localStorage.setItem(
               'shader-oracle-fork',
-              JSON.stringify({ prompt: run.prompt, fragment: attempt.fragment }),
+              JSON.stringify({
+                prompt: run.prompt,
+                fragment: attempt.fragment,
+                model: attempt.model,
+              }),
             );
             window.location.href = '/';
           }}
@@ -522,13 +650,15 @@ function SharePage({ runId }: { runId: string }) {
         <article className="message assistant shaderMessage">
           <div className="shaderBubble">
             <div className="shaderMeta">
-              <span>shared shader</span>
+              <span className="shaderModel" title={attempt.model}>
+                {attempt.model || 'shared shader'}
+              </span>
             </div>
             <ShaderCanvas fragment={attempt.fragment} />
             <details className="sourceDetails">
               <summary>
                 <Code2 size={15} />
-                GLSL body
+                GLSL source
               </summary>
               <pre>{attempt.fragment}</pre>
             </details>

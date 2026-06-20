@@ -57,7 +57,7 @@ export async function registerAttemptRoutes(
       const attempt = await context.repository.createAttempt({
         runId: previous.runId,
         fragment: repaired,
-        mode: 'body',
+        mode: 'fragment',
         model,
       });
 
@@ -65,7 +65,8 @@ export async function registerAttemptRoutes(
         runId: attempt.runId,
         attemptId: attempt.id,
         fragment: repaired,
-        mode: 'body',
+        mode: 'fragment',
+        model,
         status: 'generated',
       };
     },

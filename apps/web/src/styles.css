@@ -29,7 +29,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
@@ -121,7 +122,6 @@ a {
 
 .composer {
   display: grid;
-  grid-template-columns: 1fr auto;
   gap: 10px;
   padding: 10px;
   border: 1px solid rgba(237, 242, 244, 0.14);
@@ -132,6 +132,50 @@ a {
 
 .composer.compact {
   box-shadow: none;
+}
+
+.modelSelector {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.modelSelector label {
+  color: #94a3ad;
+  font-size: 12px;
+}
+
+.modelSelector input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid rgba(237, 242, 244, 0.12);
+  border-radius: 7px;
+  outline: 0;
+  padding: 0 10px;
+  color: #edf2f4;
+  background: #0c1015;
+}
+
+.modelSelector input:focus {
+  border-color: rgba(123, 211, 234, 0.62);
+}
+
+.modelSelector span {
+  min-width: 0;
+  overflow: hidden;
+  color: #7bd3ea;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composerInput {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
 }
 
 .composer textarea {
@@ -273,7 +317,17 @@ a {
   border-bottom: 1px solid rgba(237, 242, 244, 0.1);
 }
 
+.shaderModel {
+  min-width: 0;
+  overflow: hidden;
+  color: #c7d0d7;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .shaderActions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -417,6 +471,14 @@ pre {
   }
 
   .chatHeader span {
+    display: none;
+  }
+
+  .modelSelector {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .modelSelector span {
     display: none;
   }
 

@@ -7,6 +7,7 @@ import { registerAttemptRoutes } from './routes/attempts.js';
 import { registerGenerateRoutes } from './routes/generate.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerJudgeRoutes } from './routes/judge.js';
+import { registerModelRoutes } from './routes/models.js';
 import { registerRunRoutes } from './routes/runs.js';
 import { createModelClient } from './services/modelClient.js';
 import { getRateLimitOptions } from './util/rateLimit.js';
@@ -55,6 +56,7 @@ const context = {
 };
 
 await registerHealthRoutes(app);
+await registerModelRoutes(app, context);
 await registerGenerateRoutes(app, context);
 await registerAttemptRoutes(app, context);
 await registerJudgeRoutes(app, context);

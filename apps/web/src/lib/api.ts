@@ -5,6 +5,7 @@ import type {
   GenerateResponse,
   JudgeRequest,
   JudgeResponse,
+  ModelsResponse,
   PublishResponse,
   RepairRequest,
   RunResponse,
@@ -39,6 +40,10 @@ export function generateShader(request: GenerateRequest): Promise<GenerateRespon
     method: 'POST',
     body: JSON.stringify(request),
   });
+}
+
+export function getModels(): Promise<ModelsResponse> {
+  return apiRequest('/models');
 }
 
 export function reportCompileResult(

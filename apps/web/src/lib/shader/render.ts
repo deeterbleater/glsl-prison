@@ -1,5 +1,5 @@
 import type { ShaderStats } from '@shader-oracle/shared';
-import { compileFragmentBody, type ShaderCompileResult } from './compile';
+import { compileFragmentShader, type ShaderCompileResult } from './compile';
 
 type UniformLocations = {
   r: WebGLUniformLocation | null;
@@ -28,8 +28,8 @@ export class ShaderRenderer {
     this.gl = gl;
   }
 
-  compile(fragmentBody: string): ShaderCompileResult {
-    const result = compileFragmentBody(this.gl, fragmentBody);
+  compile(fragmentSource: string): ShaderCompileResult {
+    const result = compileFragmentShader(this.gl, fragmentSource);
     if (!result.ok || !result.program) return result;
 
     if (this.program) this.gl.deleteProgram(this.program);

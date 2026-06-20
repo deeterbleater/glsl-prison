@@ -87,6 +87,40 @@ float vignette = smoothstep(1.4, 0.2, d);
 col = palette * vignette;`;
 }
 
+function localFragmentSource(body: string): string {
+  return `#version 300 es
+precision highp float;
+
+uniform vec2 r;
+uniform float t;
+uniform vec4 m;
+
+out vec4 o;
+
+#define R r
+#define T t
+#define M m
+#define FC gl_FragCoord.xy
+#define PI 3.141592653589793
+#define TAU 6.283185307179586
+
+float sat(float x) { return clamp(x, 0.0, 1.0); }
+vec2 rot(vec2 p, float a) {
+  float c = cos(a), s = sin(a);
+  return mat2(c, -s, s, c) * p;
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / r;
+  vec2 p = (gl_FragCoord.xy * 2.0 - r) / min(r.x, r.y);
+  vec3 col = vec3(0.0);
+
+${body}
+
+  o = vec4(col, 1.0);
+}`;
+}
+
 function maxTokensForCharLimit(charLimit: number): number {
   return Math.max(180, Math.min(2200, Math.ceil(charLimit / 1.5)));
 }
@@ -129,14 +163,14 @@ class LocalModelClient implements ModelClient {
   constructor(readonly defaultModel: string) {}
 
   async generateShader(input: GenerateShaderInput): Promise<string> {
-    return fallbackShader(input.prompt);
+    return localFragmentSource(fallbackShader(input.prompt));
   }
 
   async repairShader(input: RepairShaderInput): Promise<string> {
     if (input.fragment.includes('foo(')) {
       return input.fragment.replace(/\bfoo\s*\([^)]*\)/g, 'vec3(length(p))');
     }
-    return fallbackShader(input.prompt);
+    return localFragmentSource(fallbackShader(input.prompt));
   }
 
   async judgeAttempt(input: JudgeAttemptInput): Promise<JudgeResult> {
@@ -187,7 +221,7 @@ class OpenAIResponsesClient implements ModelClient {
       input: `Prompt:
 "${input.prompt}"
 
-Shader body:
+Shader source:
 ${input.fragment}
 
 Compile/frame stats:
@@ -274,7 +308,7 @@ class OpenRouterChatClient implements ModelClient {
       user: `Prompt:
 "${input.prompt}"
 
-Shader body:
+Shader source:
 ${input.fragment}
 
 Compile/frame stats:

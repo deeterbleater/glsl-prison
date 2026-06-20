@@ -1,4 +1,4 @@
-import { VERTEX_SHADER_SOURCE, wrapFragmentBody } from './boilerplate';
+import { normalizeFragmentSource, VERTEX_SHADER_SOURCE } from './boilerplate';
 
 export type ShaderCompileResult = {
   ok: boolean;
@@ -21,14 +21,17 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
   return shader;
 }
 
-export function compileFragmentBody(gl: WebGL2RenderingContext, body: string): ShaderCompileResult {
+export function compileFragmentShader(
+  gl: WebGL2RenderingContext,
+  source: string,
+): ShaderCompileResult {
   let vertexShader: WebGLShader | undefined;
   let fragmentShader: WebGLShader | undefined;
   let program: WebGLProgram | undefined;
 
   try {
     vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER_SOURCE);
-    fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, wrapFragmentBody(body));
+    fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, normalizeFragmentSource(source));
     program = gl.createProgram() ?? undefined;
     if (!program) throw new Error('Unable to create WebGL program');
 

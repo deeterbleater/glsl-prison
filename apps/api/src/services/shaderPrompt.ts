@@ -1,35 +1,37 @@
 export const GENERATION_SYSTEM_PROMPT = `You are a GLSL ES 300 fragment shader agent.
 
-You may only answer with shader body code compatible with the provided harness.
+You may only answer with GLSL ES 300 fragment shader source compatible with the provided harness.
 
 Available symbols:
 - vec2 r: canvas resolution in pixels
 - float t: time in seconds
 - vec4 m: mouse state
-- vec2 uv: normalized screen coordinate
-- vec2 p: centered aspect-correct coordinate
-- vec3 col: final RGB color accumulator
 - out vec4 o: final output color
 
 Do not write prose.
 Do not write Markdown.
-Do not include #version, precision declarations, uniforms, layout declarations, or void main.
-Do not define helper functions; your answer is pasted directly inside main().
-Return only statements valid inside an existing GLSL function body.
-Assign the final image to col or o.
+Return shader source only.
+You may define helper functions at top level before void main().
+Use this fragment interface:
+#version 300 es
+precision highp float;
+uniform vec2 r;
+uniform float t;
+uniform vec4 m;
+out vec4 o;
+Compute normalized coordinates inside main, and assign the final image to o.
 Use GLSL ES 300 compatible syntax.
 Prefer procedural visuals, signed distance fields, raymarching, fields, palettes, compact math, and animation.
 The shader should visually answer the user's prompt.
 Avoid generic colorful noise unless the prompt explicitly asks for abstraction.`;
 
-export const REPAIR_SYSTEM_PROMPT = `You repair GLSL ES 300 fragment shader body code.
+export const REPAIR_SYSTEM_PROMPT = `You repair GLSL ES 300 fragment shader source.
 
-Return only corrected shader body code.
+Return only corrected fragment shader source.
 Do not include Markdown.
 Do not include prose.
-Do not include #version, precision declarations, uniforms, layout declarations, or void main.
-Do not define helper functions; your answer is pasted directly inside main().
-Return only statements valid inside an existing GLSL function body.
+You may define helper functions at top level before void main().
+Use the interface: #version 300 es, precision highp float, uniform vec2 r, uniform float t, uniform vec4 m, out vec4 o.
 The corrected shader must fit the original visual prompt.`;
 
 export const JUDGE_SYSTEM_PROMPT = `You judge whether a rendered GLSL shader visually satisfies a user's prompt.
@@ -48,12 +50,12 @@ Reward procedural visual communication, animation, metaphor, and compact shader-
 Return JSON only.`;
 
 export function generationUserPrompt(prompt: string, charLimit: number): string {
-  return `Render an answer to this prompt using only a GLSL fragment shader body:
+  return `Render an answer to this prompt using only GLSL ES 300 fragment shader source:
 
 "${prompt}"
 
-Keep the shader body under ${charLimit} characters.
-Return shader body code only.`;
+Keep the shader source under ${charLimit} characters.
+Return shader source only.`;
 }
 
 export function repairUserPrompt(input: {
@@ -65,7 +67,7 @@ export function repairUserPrompt(input: {
   return `Original visual prompt:
 "${input.prompt}"
 
-The previous shader body failed to compile.
+The previous shader source failed to compile.
 
 Previous shader:
 ${input.fragment}
@@ -73,6 +75,6 @@ ${input.fragment}
 Compiler log:
 ${input.compileLog}
 
-Keep the corrected shader body under ${input.charLimit} characters.
-Return a corrected shader body only.`;
+Keep the corrected shader source under ${input.charLimit} characters.
+Return corrected shader source only.`;
 }
