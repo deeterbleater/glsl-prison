@@ -115,6 +115,16 @@ function normalizeMode(mode?: string | null): ShaderMode {
   return 'fragment';
 }
 
+const POSTGRES_NUL_BYTE = String.fromCharCode(0);
+
+function cleanDbText(value: string): string {
+  return value.includes(POSTGRES_NUL_BYTE) ? value.split(POSTGRES_NUL_BYTE).join('') : value;
+}
+
+function cleanOptionalDbText(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : cleanDbText(value);
+}
+
 class MemoryRepository implements Repository {
   private runs = new Map<string, RunRecord>();
   private attempts = new Map<string, AttemptRecord>();
@@ -126,10 +136,10 @@ class MemoryRepository implements Repository {
     const now = new Date();
     const run: RunRecord = {
       id: makeId('run'),
-      userId: input.userId,
-      prompt: input.prompt,
+      userId: cleanOptionalDbText(input.userId),
+      prompt: cleanDbText(input.prompt),
       mode: input.mode,
-      model: input.model,
+      model: cleanDbText(input.model),
       public: false,
       createdAt: now,
       updatedAt: now,
@@ -139,9 +149,9 @@ class MemoryRepository implements Repository {
       id: makeId('att'),
       runId: run.id,
       attemptNumber: 1,
-      fragment: input.fragment,
+      fragment: cleanDbText(input.fragment),
       mode: input.mode,
-      model: input.model,
+      model: cleanDbText(input.model),
       status: 'generated',
       createdAt: now,
     };
@@ -158,9 +168,9 @@ class MemoryRepository implements Repository {
       id: makeId('att'),
       runId: run.id,
       attemptNumber: run.attempts.length + 1,
-      fragment: input.fragment,
+      fragment: cleanDbText(input.fragment),
       mode: input.mode,
-      model: input.model,
+      model: cleanDbText(input.model),
       status: 'generated',
       createdAt: new Date(),
     };
@@ -195,7 +205,7 @@ class MemoryRepository implements Repository {
     const attempt = this.attempts.get(attemptId);
     if (!attempt) return;
     attempt.compileOk = result.ok;
-    attempt.compileLog = result.compileLog;
+    attempt.compileLog = cleanDbText(result.compileLog);
     attempt.status = result.ok ? 'compiled' : 'compile_failed';
     if (result.ok) attempt.stats = result.stats;
     const run = this.runs.get(attempt.runId);
@@ -207,7 +217,7 @@ class MemoryRepository implements Repository {
       id: makeId('cap'),
       attemptId,
       t: frame.t,
-      dataUrl: frame.dataUrl,
+      dataUrl: cleanDbText(frame.dataUrl),
       createdAt: new Date(),
     }));
     this.captures.set(attemptId, records);
@@ -217,7 +227,7 @@ class MemoryRepository implements Repository {
     const attempt = this.attempts.get(attemptId);
     if (!attempt) return;
     attempt.score = score;
-    attempt.critique = critique;
+    attempt.critique = cleanDbText(critique);
     attempt.status = 'judged';
   }
 
@@ -239,17 +249,17 @@ class PrismaRepository implements Repository {
     const run = await prisma.run.create({
       data: {
         id: runId,
-        userId: input.userId,
-        prompt: input.prompt,
+        userId: cleanOptionalDbText(input.userId),
+        prompt: cleanDbText(input.prompt),
         mode: input.mode,
-        model: input.model,
+        model: cleanDbText(input.model),
         attempts: {
           create: {
             id: attemptId,
             attemptNumber: 1,
-            fragment: input.fragment,
+            fragment: cleanDbText(input.fragment),
             mode: input.mode,
-            model: input.model,
+            model: cleanDbText(input.model),
             status: 'generated',
           },
         },
@@ -291,9 +301,9 @@ class PrismaRepository implements Repository {
         id: makeId('att'),
         runId: input.runId,
         attemptNumber: attemptCount + 1,
-        fragment: input.fragment,
+        fragment: cleanDbText(input.fragment),
         mode: input.mode,
-        model: input.model,
+        model: cleanDbText(input.model),
         status: 'generated',
       },
     });
@@ -405,7 +415,7 @@ class PrismaRepository implements Repository {
       where: { id: attemptId },
       data: {
         compileOk: result.ok,
-        compileLog: result.compileLog,
+        compileLog: cleanDbText(result.compileLog),
         statsJson: result.ok ? result.stats : undefined,
         status: result.ok ? 'compiled' : 'compile_failed',
       },
@@ -420,7 +430,7 @@ class PrismaRepository implements Repository {
           id: makeId('cap'),
           attemptId,
           t: frame.t,
-          dataUrl: frame.dataUrl,
+          dataUrl: cleanDbText(frame.dataUrl),
         })),
       }),
     ]);
@@ -431,7 +441,7 @@ class PrismaRepository implements Repository {
       where: { id: attemptId },
       data: {
         scoreJson: score,
-        critique,
+        critique: cleanDbText(critique),
         status: 'judged',
       },
     });
