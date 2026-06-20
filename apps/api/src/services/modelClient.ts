@@ -36,6 +36,13 @@ export type JudgeResult = {
   critique: string;
 };
 
+type FetchResponse = {
+  ok: boolean;
+  status: number;
+  text(): Promise<string>;
+  json(): Promise<unknown>;
+};
+
 export interface ModelClient {
   defaultModel: string;
   providerName: string;
@@ -203,7 +210,7 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
   }): Promise<string> {
     if (!this.env.openaiApiKey) throw new Error('OPENAI_API_KEY is not configured');
 
-    const response = await fetch(this.endpoint, {
+    const response = (await fetch(this.endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.env.openaiApiKey}`,
@@ -216,7 +223,7 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
         max_output_tokens: input.maxOutputTokens,
         temperature: input.temperature,
       }),
-    });
+    })) as FetchResponse;
 
     if (!response.ok) {
       const detail = await response.text();
@@ -292,7 +299,7 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
   }): Promise<string> {
     if (!this.env.openrouterApiKey) throw new Error('OPENROUTER_API_KEY is not configured');
 
-    const response = await fetch(this.endpoint, {
+    const response = (await fetch(this.endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.env.openrouterApiKey}`,
@@ -312,7 +319,7 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
         verbosity: 'low',
         response_format: input.responseFormat,
       }),
-    });
+    })) as FetchResponse;
 
     if (!response.ok) {
       const detail = await response.text();

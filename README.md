@@ -51,10 +51,12 @@ Frontend on Vercel:
 
 ```txt
 Framework preset: Vite
-Root directory: apps/web
-Build command: pnpm build
-Output directory: dist
+Root directory: repository root
+Build command: pnpm --filter @shader-oracle/web build
+Output directory: apps/web/dist
 ```
+
+Do not point the Vercel project at `apps/api`; the API is intended for the Vultr host.
 
 Backend target:
 
