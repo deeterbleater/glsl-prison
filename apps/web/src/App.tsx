@@ -117,6 +117,7 @@ export type AuthState = {
   enabled: boolean;
   loaded: boolean;
   signedIn: boolean;
+  redirectToSignIn?: () => Promise<unknown> | void;
 };
 
 type UserMessage = {
@@ -531,9 +532,16 @@ function HomePage({ auth }: { auth: AuthState }) {
   const [error, setError] = useState<string>();
 
   const hasChatStarted = messages.length > 0;
-  const authBlocksGeneration = auth.enabled && (!auth.loaded || !auth.signedIn);
+  const authLoading = auth.enabled && !auth.loaded;
+  const authBlocksGeneration = auth.enabled && !auth.signedIn;
 
   useEffect(() => {
+    const pendingPrompt = window.localStorage.getItem('shader-oracle-pending-prompt');
+    if (pendingPrompt) {
+      window.localStorage.removeItem('shader-oracle-pending-prompt');
+      setInput(pendingPrompt);
+    }
+
     const forked = window.localStorage.getItem('shader-oracle-fork');
     if (!forked) return;
     window.localStorage.removeItem('shader-oracle-fork');
@@ -693,7 +701,9 @@ function HomePage({ auth }: { auth: AuthState }) {
     const prompt = (promptOverride ?? input).trim();
     if (!prompt || busy) return;
     if (authBlocksGeneration) {
-      setError('Sign in to generate shaders.');
+      window.localStorage.setItem('shader-oracle-pending-prompt', prompt);
+      setError(undefined);
+      await auth.redirectToSignIn?.();
       return;
     }
 
@@ -792,7 +802,7 @@ function HomePage({ auth }: { auth: AuthState }) {
             featuredModelIds={featuredModelIds}
             reasoningEffort={reasoningEffort}
             onReasoningChange={setReasoningEffort}
-            disabled={busy || authBlocksGeneration}
+            disabled={busy || authLoading}
           />
           <div className="promptChips">
             {PROMPT_EXAMPLES.map((example) => (
@@ -834,7 +844,7 @@ function HomePage({ auth }: { auth: AuthState }) {
               featuredModelIds={featuredModelIds}
               reasoningEffort={reasoningEffort}
               onReasoningChange={setReasoningEffort}
-              disabled={busy || Boolean(pendingCompile) || authBlocksGeneration}
+              disabled={busy || Boolean(pendingCompile) || authLoading}
             />
           </div>
         </section>

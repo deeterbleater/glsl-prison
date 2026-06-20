@@ -1,4 +1,4 @@
-import { ClerkProvider, useAuth } from '@clerk/react';
+import { ClerkProvider, useAuth, useClerk } from '@clerk/react';
 import { StrictMode } from 'react';
 import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -15,6 +15,7 @@ const unauthenticatedState: AuthState = {
 
 function ClerkSessionApp() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
+  const clerk = useClerk();
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn) {
@@ -32,6 +33,10 @@ function ClerkSessionApp() {
         enabled: true,
         loaded: isLoaded,
         signedIn: Boolean(isSignedIn),
+        redirectToSignIn: () =>
+          clerk.redirectToSignIn({
+            signInFallbackRedirectUrl: window.location.href,
+          }),
       }}
     />
   );
