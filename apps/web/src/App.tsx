@@ -1,4 +1,5 @@
 import type {
+  BillingBalanceResponse,
   CompileResultRequest,
   GenerateResponse,
   OpenRouterModelDto,
@@ -10,6 +11,7 @@ import {
   AlertTriangle,
   Code2,
   Copy,
+  CreditCard,
   ExternalLink,
   GitFork,
   LoaderCircle,
@@ -29,7 +31,9 @@ import {
 } from 'react';
 import { ShaderCanvas, type CompileSnapshot } from './components/ShaderCanvas';
 import {
+  createBillingCheckout,
   generateShader,
+  getBillingBalance,
   getModels,
   getRun,
   publishRun,
@@ -178,12 +182,15 @@ function modelDisplayLabel(modelId: string | undefined, models: OpenRouterModelD
 }
 
 function modelPriceLabel(model?: OpenRouterModelDto): string | undefined {
-  if (!model?.pricing?.prompt || !model.pricing.completion) return undefined;
-  const promptPrice = Number(model.pricing.prompt) * 1_000_000;
-  const completionPrice = Number(model.pricing.completion) * 1_000_000;
-  if (!Number.isFinite(promptPrice) || !Number.isFinite(completionPrice)) return undefined;
-  if (promptPrice === 0 && completionPrice === 0) return 'free';
-  return `$${promptPrice.toFixed(2)} / $${completionPrice.toFixed(2)} per 1M`;
+  if (!model) return undefined;
+  const pricing = model.glslTokenPricing;
+  if (pricing && !pricing.paid) return 'free';
+  if (pricing?.promptPerMillion !== undefined && pricing.completionPerMillion !== undefined) {
+    return `${pricing.promptPerMillion.toLocaleString()} / ${pricing.completionPerMillion.toLocaleString()} tokens per 1M`;
+  }
+  if (pricing?.request !== undefined) return `${pricing.request.toLocaleString()} tokens/request`;
+  if (model.id.endsWith(':free')) return 'free';
+  return model.pricing ? 'paid' : undefined;
 }
 
 function modelShortLabel(model: OpenRouterModelDto): string {
@@ -276,6 +283,24 @@ function AuthControls({ auth }: { auth: AuthState }) {
           Sign up
         </button>
       </SignUpButton>
+    </div>
+  );
+}
+
+function BillingControls(props: {
+  auth: AuthState;
+  billing?: BillingBalanceResponse;
+  onBuy: () => void;
+}) {
+  if (!props.auth.enabled || !props.auth.signedIn) return null;
+
+  return (
+    <div className="billingControls">
+      <span>{props.billing ? props.billing.balanceTokens.toLocaleString() : '...'} tokens</span>
+      <button type="button" onClick={props.onBuy}>
+        <CreditCard size={15} />
+        Buy
+      </button>
     </div>
   );
 }
@@ -532,6 +557,7 @@ function HomePage({ auth }: { auth: AuthState }) {
   const [featuredModelIds, setFeaturedModelIds] = useState(FEATURED_MODEL_IDS);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('auto');
+  const [billing, setBilling] = useState<BillingBalanceResponse>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -569,6 +595,22 @@ function HomePage({ auth }: { auth: AuthState }) {
       setError('Unable to load forked shader.');
     }
   }, []);
+
+  const refreshBilling = useCallback(async () => {
+    if (!auth.enabled || !auth.loaded || !auth.signedIn) {
+      setBilling(undefined);
+      return;
+    }
+    try {
+      setBilling(await getBillingBalance());
+    } catch {
+      setBilling(undefined);
+    }
+  }, [auth.enabled, auth.loaded, auth.signedIn]);
+
+  useEffect(() => {
+    void refreshBilling();
+  }, [refreshBilling]);
 
   useEffect(() => {
     let cancelled = false;
@@ -676,6 +718,11 @@ function HomePage({ auth }: { auth: AuthState }) {
           fragment: pendingCompile.fragment,
           reasoningEffort: pendingCompile.reasoningEffort,
         });
+        if (repaired.billing) {
+          setBilling((current) =>
+            current ? { ...current, balanceTokens: repaired.billing?.balanceTokens ?? 0 } : current,
+          );
+        }
         setPendingCompile({
           messageId: pendingCompile.messageId,
           prompt: pendingCompile.prompt,
@@ -737,6 +784,11 @@ function HomePage({ auth }: { auth: AuthState }) {
           reasoningEffort,
         },
       });
+      if (response.billing) {
+        setBilling((current) =>
+          current ? { ...current, balanceTokens: response.billing?.balanceTokens ?? 0 } : current,
+        );
+      }
 
       setAssistantMessage(setMessages, assistantId, {
         status: 'compiling',
@@ -791,6 +843,19 @@ function HomePage({ auth }: { auth: AuthState }) {
     }
   }
 
+  async function buyTokens() {
+    if (!auth.signedIn) {
+      await auth.openSignIn?.();
+      return;
+    }
+    try {
+      const response = await createBillingCheckout();
+      window.location.href = response.url;
+    } catch (billingError) {
+      setError(billingError instanceof Error ? billingError.message : 'Unable to open checkout.');
+    }
+  }
+
   return (
     <main className={hasChatStarted ? 'chatApp active' : 'chatApp'}>
       <header className="chatHeader">
@@ -798,7 +863,10 @@ function HomePage({ auth }: { auth: AuthState }) {
           glsl.chat
         </a>
         <span>shader-only model output</span>
-        <AuthControls auth={auth} />
+        <div className="headerActions">
+          <BillingControls auth={auth} billing={billing} onBuy={() => void buyTokens()} />
+          <AuthControls auth={auth} />
+        </div>
       </header>
 
       {!hasChatStarted ? (

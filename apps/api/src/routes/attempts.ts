@@ -1,7 +1,15 @@
 import type { CaptureRequest, CompileResultRequest, RepairRequest } from '@shader-oracle/shared';
+import type { OpenRouterModelDto } from '@shader-oracle/shared';
 import type { FastifyInstance } from 'fastify';
+import { InsufficientTokensError } from '../db/repository.js';
+import {
+  estimatedPaidGenerationCharge,
+  modelHasBillablePricing,
+  modelIsPaid,
+  usageChargeForPricing,
+} from '../services/billing.js';
 import type { RouteContext } from './context.js';
-import { canAccessOwner } from './auth.js';
+import { canAccessOwner, requestUserId } from './auth.js';
 import { repairOnce } from '../services/repairLoop.js';
 
 const MAX_CAPTURE_FRAMES = 3;
@@ -12,6 +20,15 @@ function cleanDataUrl(dataUrl: string): string | undefined {
   if (!trimmed.startsWith('data:image/png;base64,')) return undefined;
   if (trimmed.length > MAX_CAPTURE_DATA_URL_LENGTH) return undefined;
   return trimmed;
+}
+
+async function getPaidModelForBilling(
+  context: RouteContext,
+  model: string,
+): Promise<{ model?: OpenRouterModelDto; paid: boolean }> {
+  if (context.modelClient.providerName !== 'openrouter') return { paid: false };
+  const catalogModel = await context.modelCatalog.getModel(model);
+  return { model: catalogModel, paid: modelIsPaid(catalogModel, model) };
 }
 
 export async function registerAttemptRoutes(
@@ -49,6 +66,36 @@ export async function registerAttemptRoutes(
       const fragment = request.body?.fragment?.trim() || previous.fragment;
       const reasoningEffort = request.body?.reasoningEffort;
       const model = previous.model || previous.run.model || context.modelClient.defaultModel;
+      const userId = requestUserId(context, request);
+      const billingModel = await getPaidModelForBilling(context, model);
+      if (billingModel.paid) {
+        if (!userId) return reply.code(401).send({ ok: false, error: 'sign in required' });
+        if (!modelHasBillablePricing(billingModel.model)) {
+          return reply.code(503).send({ ok: false, error: 'model pricing is unavailable' });
+        }
+
+        const pricing = billingModel.model?.pricing;
+        if (!pricing) {
+          return reply.code(503).send({ ok: false, error: 'model pricing is unavailable' });
+        }
+
+        const balance = await context.repository.getTokenBalance(userId);
+        const estimatedCharge = estimatedPaidGenerationCharge({
+          pricing,
+          promptText: `${previous.run.prompt}\n${fragment}\n${compileLog}`,
+          charLimit: 8000,
+          maxCalls: 3,
+        });
+        if (balance.balanceTokens < estimatedCharge) {
+          return reply.code(402).send({
+            ok: false,
+            error: `paid model requires ${estimatedCharge} glsl.chat tokens for this repair`,
+            balanceTokens: balance.balanceTokens,
+            requiredTokens: estimatedCharge,
+          });
+        }
+      }
+
       let repaired;
       try {
         repaired = await repairOnce({
@@ -69,18 +116,51 @@ export async function registerAttemptRoutes(
 
       const attempt = await context.repository.createAttempt({
         runId: previous.runId,
-        fragment: repaired,
+        fragment: repaired.fragment,
         mode: 'fragment',
         model,
       });
 
+      let billing;
+      if (billingModel.paid && userId && billingModel.model?.pricing) {
+        const charge = usageChargeForPricing(billingModel.model.pricing, repaired.usages);
+        const chargedTokens = Math.max(1, charge.chargedTokens);
+        try {
+          const balance = await context.repository.debitTokenUsage({
+            userId,
+            tokenCost: chargedTokens,
+            type: 'usage_repair',
+            model,
+            runId: attempt.runId,
+            attemptId: attempt.id,
+            promptTokens: charge.promptTokens,
+            completionTokens: charge.completionTokens,
+            totalTokens: charge.totalTokens,
+            costUsdMicros: charge.costUsdMicros,
+            description: `Paid shader repair with ${model}`,
+          });
+          billing = { ...charge, chargedTokens, balanceTokens: balance.balanceTokens };
+        } catch (error) {
+          if (error instanceof InsufficientTokensError) {
+            return reply.code(402).send({
+              ok: false,
+              error: 'not enough glsl.chat tokens',
+              balanceTokens: error.balanceTokens,
+              requiredTokens: error.requiredTokens,
+            });
+          }
+          throw error;
+        }
+      }
+
       return {
         runId: attempt.runId,
         attemptId: attempt.id,
-        fragment: repaired,
+        fragment: repaired.fragment,
         mode: 'fragment',
         model,
         status: 'generated',
+        billing,
       };
     },
   );

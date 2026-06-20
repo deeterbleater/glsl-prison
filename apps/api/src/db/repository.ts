@@ -47,6 +47,11 @@ type CaptureRecord = {
   createdAt: Date;
 };
 
+export type TokenBalanceRecord = {
+  userId: string;
+  balanceTokens: number;
+};
+
 export type CreateRunInput = {
   userId?: string;
   prompt: string;
@@ -61,6 +66,38 @@ export type CreateAttemptInput = {
   mode: ShaderMode;
   model: string;
 };
+
+export type DebitTokenUsageInput = {
+  userId: string;
+  tokenCost: number;
+  type: 'usage_generate' | 'usage_repair';
+  model?: string;
+  runId?: string;
+  attemptId?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  costUsdMicros?: number;
+  description?: string;
+};
+
+export type CreditTokenPurchaseInput = {
+  userId: string;
+  tokens: number;
+  stripeEventId?: string;
+  stripeSessionId?: string;
+  amountUsdCents?: number;
+  description?: string;
+};
+
+export class InsufficientTokensError extends Error {
+  constructor(
+    readonly requiredTokens: number,
+    readonly balanceTokens: number,
+  ) {
+    super('not enough glsl.chat tokens');
+  }
+}
 
 export interface Repository {
   createRunWithAttempt(input: CreateRunInput): Promise<{ run: RunDto; attempt: AttemptRecord }>;
@@ -77,6 +114,9 @@ export interface Repository {
   addCaptures(attemptId: string, frames: CaptureFrame[]): Promise<void>;
   saveJudgeResult(attemptId: string, score: JudgeScore, critique: string): Promise<void>;
   publishRun(runId: string, isPublic: boolean): Promise<RunDto | undefined>;
+  getTokenBalance(userId: string): Promise<TokenBalanceRecord>;
+  creditTokenPurchase(input: CreditTokenPurchaseInput): Promise<TokenBalanceRecord>;
+  debitTokenUsage(input: DebitTokenUsageInput): Promise<TokenBalanceRecord>;
 }
 
 function toRunDto(run: RunRecord): RunDto {
@@ -129,6 +169,9 @@ class MemoryRepository implements Repository {
   private runs = new Map<string, RunRecord>();
   private attempts = new Map<string, AttemptRecord>();
   private captures = new Map<string, CaptureRecord[]>();
+  private tokenBalances = new Map<string, TokenBalanceRecord>();
+  private stripeSessionCredits = new Set<string>();
+  private stripeEventCredits = new Set<string>();
 
   async createRunWithAttempt(
     input: CreateRunInput,
@@ -237,6 +280,48 @@ class MemoryRepository implements Repository {
     run.public = isPublic;
     run.updatedAt = new Date();
     return toRunDto(run);
+  }
+
+  async getTokenBalance(userId: string): Promise<TokenBalanceRecord> {
+    const cleanedUserId = cleanDbText(userId);
+    const balance = this.tokenBalances.get(cleanedUserId) ?? {
+      userId: cleanedUserId,
+      balanceTokens: 0,
+    };
+    this.tokenBalances.set(cleanedUserId, balance);
+    return { ...balance };
+  }
+
+  async creditTokenPurchase(input: CreditTokenPurchaseInput): Promise<TokenBalanceRecord> {
+    const userId = cleanDbText(input.userId);
+    const stripeSessionId = cleanOptionalDbText(input.stripeSessionId);
+    const stripeEventId = cleanOptionalDbText(input.stripeEventId);
+    if (stripeSessionId && this.stripeSessionCredits.has(stripeSessionId)) {
+      return this.getTokenBalance(userId);
+    }
+    if (stripeEventId && this.stripeEventCredits.has(stripeEventId)) {
+      return this.getTokenBalance(userId);
+    }
+
+    const current = await this.getTokenBalance(userId);
+    current.balanceTokens += Math.max(0, Math.floor(input.tokens));
+    this.tokenBalances.set(userId, current);
+    if (stripeSessionId) this.stripeSessionCredits.add(stripeSessionId);
+    if (stripeEventId) this.stripeEventCredits.add(stripeEventId);
+    return { ...current };
+  }
+
+  async debitTokenUsage(input: DebitTokenUsageInput): Promise<TokenBalanceRecord> {
+    const userId = cleanDbText(input.userId);
+    const tokenCost = Math.max(0, Math.floor(input.tokenCost));
+    const current = await this.getTokenBalance(userId);
+    if (tokenCost === 0) return current;
+    if (current.balanceTokens < tokenCost) {
+      throw new InsufficientTokensError(tokenCost, current.balanceTokens);
+    }
+    current.balanceTokens -= tokenCost;
+    this.tokenBalances.set(userId, current);
+    return { ...current };
   }
 }
 
@@ -453,6 +538,109 @@ class PrismaRepository implements Repository {
       data: { public: isPublic },
     });
     return this.getRun(runId);
+  }
+
+  async getTokenBalance(userId: string): Promise<TokenBalanceRecord> {
+    const cleanedUserId = cleanDbText(userId);
+    const balance = await prisma.tokenBalance.upsert({
+      where: { userId: cleanedUserId },
+      create: { userId: cleanedUserId },
+      update: {},
+    });
+    return { userId: balance.userId, balanceTokens: balance.balanceTokens };
+  }
+
+  async creditTokenPurchase(input: CreditTokenPurchaseInput): Promise<TokenBalanceRecord> {
+    const userId = cleanDbText(input.userId);
+    const stripeSessionId = cleanOptionalDbText(input.stripeSessionId);
+    const stripeEventId = cleanOptionalDbText(input.stripeEventId);
+    const tokens = Math.max(0, Math.floor(input.tokens));
+
+    return prisma.$transaction(async (tx) => {
+      const duplicateChecks = [
+        stripeSessionId ? { stripeSessionId } : undefined,
+        stripeEventId ? { stripeEventId } : undefined,
+      ].filter((check): check is { stripeSessionId: string } | { stripeEventId: string } =>
+        Boolean(check),
+      );
+
+      if (duplicateChecks.length > 0) {
+        const existing = await tx.tokenLedgerEntry.findFirst({ where: { OR: duplicateChecks } });
+        if (existing) {
+          const balance = await tx.tokenBalance.findUnique({ where: { userId } });
+          return { userId, balanceTokens: balance?.balanceTokens ?? existing.balanceAfter };
+        }
+      }
+
+      await tx.tokenBalance.upsert({
+        where: { userId },
+        create: { userId },
+        update: {},
+      });
+      const updated = await tx.tokenBalance.update({
+        where: { userId },
+        data: { balanceTokens: { increment: tokens } },
+      });
+      await tx.tokenLedgerEntry.create({
+        data: {
+          id: makeId('tok'),
+          userId,
+          type: 'purchase',
+          tokenDelta: tokens,
+          balanceAfter: updated.balanceTokens,
+          stripeEventId,
+          stripeSessionId,
+          amountUsdCents: input.amountUsdCents,
+          description: cleanOptionalDbText(input.description),
+        },
+      });
+      return { userId: updated.userId, balanceTokens: updated.balanceTokens };
+    });
+  }
+
+  async debitTokenUsage(input: DebitTokenUsageInput): Promise<TokenBalanceRecord> {
+    const userId = cleanDbText(input.userId);
+    const tokenCost = Math.max(0, Math.floor(input.tokenCost));
+    if (tokenCost === 0) return this.getTokenBalance(userId);
+
+    return prisma.$transaction(async (tx) => {
+      await tx.tokenBalance.upsert({
+        where: { userId },
+        create: { userId },
+        update: {},
+      });
+
+      const current = await tx.tokenBalance.findUnique({ where: { userId } });
+      const currentBalance = current?.balanceTokens ?? 0;
+      const update = await tx.tokenBalance.updateMany({
+        where: { userId, balanceTokens: { gte: tokenCost } },
+        data: { balanceTokens: { decrement: tokenCost } },
+      });
+
+      if (update.count !== 1) {
+        throw new InsufficientTokensError(tokenCost, currentBalance);
+      }
+
+      const updated = await tx.tokenBalance.findUniqueOrThrow({ where: { userId } });
+      await tx.tokenLedgerEntry.create({
+        data: {
+          id: makeId('tok'),
+          userId,
+          type: input.type,
+          tokenDelta: -tokenCost,
+          balanceAfter: updated.balanceTokens,
+          model: cleanOptionalDbText(input.model),
+          runId: cleanOptionalDbText(input.runId),
+          attemptId: cleanOptionalDbText(input.attemptId),
+          promptTokens: input.promptTokens,
+          completionTokens: input.completionTokens,
+          totalTokens: input.totalTokens,
+          costUsdMicros: input.costUsdMicros,
+          description: cleanOptionalDbText(input.description),
+        },
+      });
+      return { userId: updated.userId, balanceTokens: updated.balanceTokens };
+    });
   }
 }
 

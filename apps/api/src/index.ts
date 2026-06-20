@@ -1,6 +1,7 @@
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
+import rawBody from 'fastify-raw-body';
 import type { FastifyRequest } from 'fastify';
 import { createRepository } from './db/repository.js';
 import { loadEnv } from './env.js';
@@ -10,6 +11,9 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerJudgeRoutes } from './routes/judge.js';
 import { registerModelRoutes } from './routes/models.js';
 import { registerRunRoutes } from './routes/runs.js';
+import { registerStripeRoutes } from './routes/stripe.js';
+import { registerBillingRoutes } from './routes/billing.js';
+import { ModelCatalog } from './services/modelCatalog.js';
 import { createModelClient } from './services/modelClient.js';
 import { getRateLimitOptions } from './util/rateLimit.js';
 
@@ -34,6 +38,12 @@ await app.register(cors, {
 });
 
 await app.register(rateLimit, getRateLimitOptions(env));
+await app.register(rawBody, {
+  field: 'rawBody',
+  global: false,
+  encoding: 'utf8',
+  runFirst: true,
+});
 
 const clerk = env.clerkSecretKey ? await import('@clerk/fastify') : undefined;
 if (clerk) await app.register(clerk.clerkPlugin);
@@ -57,10 +67,15 @@ app.setErrorHandler((error, request, reply) => {
   reply.code(statusCode).send({ ok: false, error: message });
 });
 
+const modelClient = createModelClient(env);
 const context = {
   env,
   repository: createRepository(env),
-  modelClient: createModelClient(env),
+  modelClient,
+  modelCatalog: new ModelCatalog(env, {
+    defaultModel: modelClient.defaultModel,
+    providerName: modelClient.providerName,
+  }),
   auth: {
     enabled: Boolean(clerk),
     required: env.clerkAuthRequired,
@@ -73,7 +88,9 @@ const context = {
 };
 
 await registerHealthRoutes(app);
+await registerStripeRoutes(app, context);
 await registerModelRoutes(app, context);
+await registerBillingRoutes(app, context);
 await registerGenerateRoutes(app, context);
 await registerAttemptRoutes(app, context);
 await registerJudgeRoutes(app, context);

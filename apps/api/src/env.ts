@@ -13,6 +13,9 @@ export type Env = {
   clerkSecretKey?: string;
   clerkPublishableKey?: string;
   clerkAuthRequired: boolean;
+  stripeSecretKey?: string;
+  stripeWebhookSecret?: string;
+  stripePaymentLinkUrl?: string;
   defaultModel: string;
   openrouterDefaultModel: string;
   corsOrigins: string[];
@@ -72,6 +75,11 @@ export function loadEnv(): Env {
     clerkSecretKey,
     clerkPublishableKey: optional(process.env.CLERK_PUBLISHABLE_KEY),
     clerkAuthRequired: boolFromEnv('CLERK_AUTH_REQUIRED', Boolean(clerkSecretKey)),
+    stripeSecretKey: optional(process.env.STRIPE_SECRET_KEY),
+    stripeWebhookSecret: optional(process.env.STRIPE_WEBHOOK_SECRET),
+    stripePaymentLinkUrl:
+      optional(process.env.STRIPE_PAYMENT_LINK_URL) ||
+      'https://buy.stripe.com/eVq4gz9IP8DaaYmcKU5AQ00',
     defaultModel: process.env.DEFAULT_MODEL?.trim() || 'gpt-5-mini',
     openrouterDefaultModel:
       process.env.OPENROUTER_DEFAULT_MODEL?.trim() ||

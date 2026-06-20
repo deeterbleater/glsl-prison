@@ -52,3 +52,36 @@ model Capture {
 
   @@index([attemptId])
 }
+
+model TokenBalance {
+  userId        String             @id
+  balanceTokens Int                @default(0)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  entries       TokenLedgerEntry[]
+}
+
+model TokenLedgerEntry {
+  id              String       @id
+  userId          String
+  balance         TokenBalance @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  type            String
+  tokenDelta      Int
+  balanceAfter    Int
+  model           String?
+  runId           String?
+  attemptId       String?
+  promptTokens    Int?
+  completionTokens Int?
+  totalTokens     Int?
+  costUsdMicros   Int?
+  stripeEventId   String?      @unique
+  stripeSessionId String?      @unique
+  amountUsdCents  Int?
+  description     String?
+  createdAt       DateTime     @default(now())
+
+  @@index([userId, createdAt])
+  @@index([runId])
+  @@index([attemptId])
+}

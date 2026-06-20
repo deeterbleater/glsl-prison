@@ -49,6 +49,26 @@ CLERK_AUTH_REQUIRED=true
 
 Keep Clerk keys in ignored env files or host/Vercel environment variables only.
 
+## Billing
+
+Free OpenRouter models can run without a token balance. Paid OpenRouter models require a signed-in user with glsl.chat tokens. The app sells 1000 glsl.chat tokens for $10, then debits paid inference from the user's database balance using OpenRouter token usage plus a 5% surcharge.
+
+Configure Stripe on the API host:
+
+```txt
+STRIPE_SECRET_KEY=<private Stripe secret key>
+STRIPE_WEBHOOK_SECRET=<Stripe webhook signing secret>
+STRIPE_PAYMENT_LINK_URL=https://buy.stripe.com/eVq4gz9IP8DaaYmcKU5AQ00
+```
+
+Register the webhook endpoint as:
+
+```txt
+https://api.ufotoken.app/stripe/webhook
+```
+
+Listen for `checkout.session.completed` and `checkout.session.async_payment_succeeded`. The app appends Clerk's `userId` as `client_reference_id` to the Payment Link and credits purchases idempotently by Stripe session/event ID.
+
 ## Model Provider
 
 The API uses a provider-neutral `ModelClient`. With `OPENROUTER_API_KEY` set, it calls OpenRouter's chat completions API. With `OPENAI_API_KEY` set and no OpenRouter key, it calls the OpenAI Responses API. Without a provider key, it uses deterministic local shader and judge fallbacks so the app remains runnable.

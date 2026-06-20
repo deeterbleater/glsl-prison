@@ -1,5 +1,6 @@
 import type { CaptureFrame, JudgeScore, RunDto, ShaderStats } from './types.js';
 import type { LegacyShaderMode, ShaderMode } from './shaderModes.js';
+import type { GlslTokenPricing } from './pricing.js';
 
 export type ReasoningEffort = 'auto' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
@@ -22,6 +23,7 @@ export type GenerateResponse = {
   mode: ShaderMode;
   model: string;
   status: 'generated';
+  billing?: BillingUsageResponse;
 };
 
 export type CompileResultRequest =
@@ -70,6 +72,7 @@ export type OpenRouterModelDto = {
   description?: string;
   contextLength?: number;
   pricing?: OpenRouterModelPricing;
+  glslTokenPricing?: GlslTokenPricing;
   inputModalities?: string[];
   outputModalities?: string[];
   supportedParameters?: string[];
@@ -97,4 +100,26 @@ export type PublishRequest = {
 export type PublishResponse = {
   ok: true;
   shareUrl: string;
+};
+
+export type BillingUsageResponse = {
+  chargedTokens: number;
+  balanceTokens: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  costUsdMicros?: number;
+};
+
+export type BillingBalanceResponse = {
+  userId: string;
+  balanceTokens: number;
+  purchaseUrl?: string;
+  purchaseTokens: number;
+  purchaseUsdCents: number;
+  surchargeRate: number;
+};
+
+export type BillingCheckoutResponse = {
+  url: string;
 };

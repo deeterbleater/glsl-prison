@@ -1,4 +1,6 @@
 import type {
+  BillingBalanceResponse,
+  BillingCheckoutResponse,
   CaptureRequest,
   CompileResultRequest,
   GenerateRequest,
@@ -59,6 +61,17 @@ export function generateShader(request: GenerateRequest): Promise<GenerateRespon
 
 export function getModels(): Promise<ModelsResponse> {
   return apiRequest('/models');
+}
+
+export function getBillingBalance(): Promise<BillingBalanceResponse> {
+  return apiRequest('/billing/balance');
+}
+
+export function createBillingCheckout(): Promise<BillingCheckoutResponse> {
+  return apiRequest('/billing/checkout', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 export function reportCompileResult(

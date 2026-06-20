@@ -100,6 +100,31 @@ a {
   gap: 8px;
 }
 
+.billingControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: fit-content;
+}
+
+.billingControls span {
+  color: #c9d3db;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.billingControls button {
+  min-height: 32px;
+  display: inline-grid;
+  grid-auto-flow: column;
+  place-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  color: #101419;
+  background: #f3d56b;
+  border-color: #f3d56b;
+}
+
 .authControls {
   min-width: fit-content;
 }
@@ -593,6 +618,10 @@ pre {
   }
 
   .chatHeader > span {
+    display: none;
+  }
+
+  .billingControls span {
     display: none;
   }
 

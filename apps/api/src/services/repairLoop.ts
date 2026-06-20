@@ -1,10 +1,11 @@
-import type { ModelClient } from './modelClient.js';
+import type { ModelClient, ModelUsage } from './modelClient.js';
 import type { ReasoningEffort } from '@shader-oracle/shared';
 import { sanitizeFragmentShader } from './shaderSanitizer.js';
 
 type VerifiedShader = {
   fragment: string;
   attempts: number;
+  usages: ModelUsage[];
 };
 
 function verifierLog(reason: string, charLimit: number): string {
@@ -34,13 +35,14 @@ export async function generateWithVerification(input: {
     charLimit: input.charLimit,
     reasoningEffort: input.reasoningEffort,
   });
-  const sanitized = sanitizeFragmentShader(generated, { charLimit: input.charLimit });
-  if (sanitized.ok) return { fragment: sanitized.cleaned, attempts: 1 };
+  const usages = generated.usage ? [generated.usage] : [];
+  const sanitized = sanitizeFragmentShader(generated.text, { charLimit: input.charLimit });
+  if (sanitized.ok) return { fragment: sanitized.cleaned, attempts: 1, usages };
 
   const repaired = await repairWithVerification({
     modelClient: input.modelClient,
     prompt: input.prompt,
-    fragment: generated,
+    fragment: generated.text,
     compileLog: verifierLog(sanitized.reason, input.charLimit),
     model: input.model,
     charLimit: input.charLimit,
@@ -48,7 +50,11 @@ export async function generateWithVerification(input: {
     reasoningEffort: input.reasoningEffort,
   });
 
-  return { fragment: repaired.fragment, attempts: repaired.attempts + 1 };
+  return {
+    fragment: repaired.fragment,
+    attempts: repaired.attempts + 1,
+    usages: [...usages, ...repaired.usages],
+  };
 }
 
 export async function repairOnce(input: {
@@ -59,12 +65,12 @@ export async function repairOnce(input: {
   model: string;
   charLimit: number;
   reasoningEffort?: ReasoningEffort;
-}): Promise<string> {
+}): Promise<VerifiedShader> {
   const repaired = await repairWithVerification({
     ...input,
     maxAttempts: 3,
   });
-  return repaired.fragment;
+  return repaired;
 }
 
 export async function repairWithVerification(input: {
@@ -78,6 +84,7 @@ export async function repairWithVerification(input: {
   reasoningEffort?: ReasoningEffort;
 }): Promise<VerifiedShader> {
   const reasons: string[] = [];
+  const usages: ModelUsage[] = [];
   let fragment = input.fragment;
   let compileLog = input.compileLog;
 
@@ -90,11 +97,12 @@ export async function repairWithVerification(input: {
       charLimit: input.charLimit,
       reasoningEffort: input.reasoningEffort,
     });
-    const sanitized = sanitizeFragmentShader(repaired, { charLimit: input.charLimit });
-    if (sanitized.ok) return { fragment: sanitized.cleaned, attempts: attempt };
+    if (repaired.usage) usages.push(repaired.usage);
+    const sanitized = sanitizeFragmentShader(repaired.text, { charLimit: input.charLimit });
+    if (sanitized.ok) return { fragment: sanitized.cleaned, attempts: attempt, usages };
 
     reasons.push(sanitized.reason);
-    fragment = repaired;
+    fragment = repaired.text;
     compileLog = verifierLog(sanitized.reason, input.charLimit);
   }
 

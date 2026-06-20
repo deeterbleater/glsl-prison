@@ -38,6 +38,17 @@ export type JudgeResult = {
   critique: string;
 };
 
+export type ModelUsage = {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+};
+
+export type TextModelResponse = {
+  text: string;
+  usage?: ModelUsage;
+};
+
 type FetchResponse = {
   ok: boolean;
   status: number;
@@ -54,8 +65,8 @@ type OpenRouterReasoning = {
 export interface ModelClient {
   defaultModel: string;
   providerName: string;
-  generateShader(input: GenerateShaderInput): Promise<string>;
-  repairShader(input: RepairShaderInput): Promise<string>;
+  generateShader(input: GenerateShaderInput): Promise<TextModelResponse>;
+  repairShader(input: RepairShaderInput): Promise<TextModelResponse>;
   judgeAttempt(input: JudgeAttemptInput): Promise<JudgeResult>;
 }
 
@@ -170,15 +181,15 @@ class LocalModelClient implements ModelClient {
 
   constructor(readonly defaultModel: string) {}
 
-  async generateShader(input: GenerateShaderInput): Promise<string> {
-    return localFragmentSource(fallbackShader(input.prompt));
+  async generateShader(input: GenerateShaderInput): Promise<TextModelResponse> {
+    return { text: localFragmentSource(fallbackShader(input.prompt)) };
   }
 
-  async repairShader(input: RepairShaderInput): Promise<string> {
+  async repairShader(input: RepairShaderInput): Promise<TextModelResponse> {
     if (input.fragment.includes('foo(')) {
-      return input.fragment.replace(/\bfoo\s*\([^)]*\)/g, 'vec3(length(p))');
+      return { text: input.fragment.replace(/\bfoo\s*\([^)]*\)/g, 'vec3(length(p))') };
     }
-    return localFragmentSource(fallbackShader(input.prompt));
+    return { text: localFragmentSource(fallbackShader(input.prompt)) };
   }
 
   async judgeAttempt(input: JudgeAttemptInput): Promise<JudgeResult> {
@@ -201,7 +212,7 @@ class OpenAIResponsesClient implements ModelClient {
     this.defaultModel = env.defaultModel;
   }
 
-  async generateShader(input: GenerateShaderInput): Promise<string> {
+  async generateShader(input: GenerateShaderInput): Promise<TextModelResponse> {
     return this.textResponse({
       model: input.model,
       instructions: GENERATION_SYSTEM_PROMPT,
@@ -211,7 +222,7 @@ class OpenAIResponsesClient implements ModelClient {
     });
   }
 
-  async repairShader(input: RepairShaderInput): Promise<string> {
+  async repairShader(input: RepairShaderInput): Promise<TextModelResponse> {
     return this.textResponse({
       model: input.model,
       instructions: REPAIR_SYSTEM_PROMPT,
@@ -223,7 +234,7 @@ class OpenAIResponsesClient implements ModelClient {
 
   async judgeAttempt(input: JudgeAttemptInput): Promise<JudgeResult> {
     const stats = input.stats ? JSON.stringify(input.stats) : 'No compile stats provided.';
-    const text = await this.textResponse({
+    const response = await this.textResponse({
       model: input.model,
       instructions: JUDGE_SYSTEM_PROMPT,
       input: `Prompt:
@@ -240,7 +251,7 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
       temperature: 0.2,
     });
 
-    return parseJudgeJson(text);
+    return parseJudgeJson(response.text);
   }
 
   private async textResponse(input: {
@@ -249,7 +260,7 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
     input: string;
     maxOutputTokens: number;
     temperature: number;
-  }): Promise<string> {
+  }): Promise<TextModelResponse> {
     if (!this.env.openaiApiKey) throw new Error('OPENAI_API_KEY is not configured');
 
     const response = (await fetch(this.endpoint, {
@@ -275,7 +286,7 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
     const payload = await response.json();
     const text = extractResponseText(payload);
     if (!text) throw new Error('Model response contained no text output');
-    return text;
+    return { text, usage: openAiUsage(payload) };
   }
 }
 
@@ -288,7 +299,7 @@ class OpenRouterChatClient implements ModelClient {
     this.defaultModel = env.openrouterDefaultModel;
   }
 
-  async generateShader(input: GenerateShaderInput): Promise<string> {
+  async generateShader(input: GenerateShaderInput): Promise<TextModelResponse> {
     return this.chatResponse({
       model: input.model,
       system: GENERATION_SYSTEM_PROMPT,
@@ -299,7 +310,7 @@ class OpenRouterChatClient implements ModelClient {
     });
   }
 
-  async repairShader(input: RepairShaderInput): Promise<string> {
+  async repairShader(input: RepairShaderInput): Promise<TextModelResponse> {
     return this.chatResponse({
       model: input.model,
       system: REPAIR_SYSTEM_PROMPT,
@@ -312,7 +323,7 @@ class OpenRouterChatClient implements ModelClient {
 
   async judgeAttempt(input: JudgeAttemptInput): Promise<JudgeResult> {
     const stats = input.stats ? JSON.stringify(input.stats) : 'No compile stats provided.';
-    const text = await this.chatResponse({
+    const response = await this.chatResponse({
       model: input.model,
       system: JUDGE_SYSTEM_PROMPT,
       user: `Prompt:
@@ -330,7 +341,7 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
       responseFormat: { type: 'json_object' },
     });
 
-    return parseJudgeJson(text);
+    return parseJudgeJson(response.text);
   }
 
   private async chatResponse(input: {
@@ -341,7 +352,7 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
     reasoningEffort?: ReasoningEffort;
     temperature: number;
     responseFormat?: { type: 'json_object' };
-  }): Promise<string> {
+  }): Promise<TextModelResponse> {
     if (!this.env.openrouterApiKey) throw new Error('OPENROUTER_API_KEY is not configured');
 
     const buildBody = (forceReasoning = false) => ({
@@ -390,6 +401,11 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
           content?: string | Array<{ type?: string; text?: string }>;
         };
       }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+      };
     };
     const choice = payload?.choices?.[0];
     if (
@@ -399,17 +415,54 @@ Captured frames: ${input.captures.length}. Return JSON only with score fields an
       throw new Error('OpenRouter response hit the token limit before producing a complete shader');
     }
 
+    const usage = openRouterUsage(payload);
     const content = choice?.message?.content;
-    if (typeof content === 'string' && content.trim()) return content.trim();
+    if (typeof content === 'string' && content.trim()) return { text: content.trim(), usage };
     if (Array.isArray(content)) {
       const text = content
         .map((part) => (part?.type === 'text' && typeof part.text === 'string' ? part.text : ''))
         .join('\n')
         .trim();
-      if (text) return text;
+      if (text) return { text, usage };
     }
     throw new Error('OpenRouter response contained no text output');
   }
+}
+
+function finiteInt(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
+  return Math.floor(value);
+}
+
+function openAiUsage(payload: unknown): ModelUsage | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const raw = (payload as { usage?: Record<string, unknown> }).usage;
+  if (!raw) return undefined;
+  const promptTokens = finiteInt(raw.input_tokens ?? raw.prompt_tokens);
+  const completionTokens = finiteInt(raw.output_tokens ?? raw.completion_tokens);
+  const totalTokens = finiteInt(raw.total_tokens);
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
+    return undefined;
+  }
+  return { promptTokens, completionTokens, totalTokens };
+}
+
+function openRouterUsage(payload: {
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+}): ModelUsage | undefined {
+  const usage = payload.usage;
+  if (!usage) return undefined;
+  const promptTokens = finiteInt(usage.prompt_tokens);
+  const completionTokens = finiteInt(usage.completion_tokens);
+  const totalTokens = finiteInt(usage.total_tokens);
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
+    return undefined;
+  }
+  return { promptTokens, completionTokens, totalTokens };
 }
 
 function reasoningConfig(
