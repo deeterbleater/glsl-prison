@@ -88,9 +88,38 @@ a {
   text-decoration: none;
 }
 
-.chatHeader span {
+.chatHeader > span {
   color: #94a3ad;
   font-size: 13px;
+}
+
+.headerActions,
+.authControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.authControls {
+  min-width: fit-content;
+}
+
+.authControls .authAction {
+  min-height: 32px;
+  padding: 0 11px;
+  color: #c3cbd2;
+  background: rgba(23, 27, 33, 0.84);
+}
+
+.authControls .authAction.primary {
+  color: #101419;
+  background: #7bd3ea;
+  border-color: #7bd3ea;
+}
+
+.authControls.disabled {
+  color: #7f8a94;
+  font-size: 12px;
 }
 
 .landingChat {
@@ -563,7 +592,7 @@ pre {
     padding: 0 14px;
   }
 
-  .chatHeader span {
+  .chatHeader > span {
     display: none;
   }
 

@@ -12,6 +12,7 @@ import { prisma } from './prisma.js';
 
 type RunRecord = {
   id: string;
+  userId?: string;
   prompt: string;
   mode: ShaderMode;
   model?: string;
@@ -47,6 +48,7 @@ type CaptureRecord = {
 };
 
 export type CreateRunInput = {
+  userId?: string;
   prompt: string;
   fragment: string;
   mode: ShaderMode;
@@ -80,6 +82,7 @@ export interface Repository {
 function toRunDto(run: RunRecord): RunDto {
   return {
     id: run.id,
+    userId: run.userId,
     prompt: run.prompt,
     mode: run.mode,
     model: run.model,
@@ -123,6 +126,7 @@ class MemoryRepository implements Repository {
     const now = new Date();
     const run: RunRecord = {
       id: makeId('run'),
+      userId: input.userId,
       prompt: input.prompt,
       mode: input.mode,
       model: input.model,
@@ -235,6 +239,7 @@ class PrismaRepository implements Repository {
     const run = await prisma.run.create({
       data: {
         id: runId,
+        userId: input.userId,
         prompt: input.prompt,
         mode: input.mode,
         model: input.model,
@@ -254,6 +259,7 @@ class PrismaRepository implements Repository {
     const dto = toRunDto({
       ...run,
       mode: normalizeMode(run.mode),
+      userId: run.userId ?? undefined,
       model: run.model ?? undefined,
       attempts: run.attempts.map((attempt) => ({
         ...attempt,
@@ -312,6 +318,7 @@ class PrismaRepository implements Repository {
     return toRunDto({
       ...run,
       mode: normalizeMode(run.mode),
+      userId: run.userId ?? undefined,
       model: run.model ?? undefined,
       attempts: run.attempts.map((attempt) => ({
         id: attempt.id,
@@ -340,6 +347,7 @@ class PrismaRepository implements Repository {
     const run: RunRecord = {
       ...attempt.run,
       mode: normalizeMode(attempt.run.mode),
+      userId: attempt.run.userId ?? undefined,
       model: attempt.run.model ?? undefined,
       attempts: attempt.run.attempts.map((item) => ({
         id: item.id,

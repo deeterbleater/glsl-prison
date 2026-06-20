@@ -11,6 +11,10 @@ import type {
   RunResponse,
 } from '@shader-oracle/shared';
 
+type AuthTokenProvider = () => Promise<string | null | undefined>;
+
+let authTokenProvider: AuthTokenProvider | undefined;
+
 function defaultApiBaseUrl(): string {
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return 'http://localhost:8080';
@@ -21,11 +25,22 @@ function defaultApiBaseUrl(): string {
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl()).replace(/\/$/, '');
 
+export function setAuthTokenProvider(provider: AuthTokenProvider | undefined): void {
+  authTokenProvider = provider;
+}
+
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = await authTokenProvider?.();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...headers,
       ...init?.headers,
     },
   });

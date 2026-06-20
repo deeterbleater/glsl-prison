@@ -9,6 +9,7 @@ datasource db {
 
 model Run {
   id        String    @id
+  userId    String?
   prompt    String
   mode      String
   model     String?
@@ -16,6 +17,8 @@ model Run {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   attempts  Attempt[]
+
+  @@index([userId])
 }
 
 model Attempt {

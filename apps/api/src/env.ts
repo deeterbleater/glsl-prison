@@ -10,6 +10,9 @@ export type Env = {
   openrouterApiKey?: string;
   openrouterAppUrl: string;
   openrouterAppTitle: string;
+  clerkSecretKey?: string;
+  clerkPublishableKey?: string;
+  clerkAuthRequired: boolean;
   defaultModel: string;
   openrouterDefaultModel: string;
   corsOrigins: string[];
@@ -30,7 +33,16 @@ function intFromEnv(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function boolFromEnv(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
+  if (['0', 'false', 'no', 'off'].includes(raw)) return false;
+  return fallback;
+}
+
 export function loadEnv(): Env {
+  const clerkSecretKey = optional(process.env.CLERK_SECRET_KEY);
   const configuredCorsOrigins = (
     process.env.CORS_ORIGIN ?? 'http://localhost:5173,https://glsl.chat,https://www.glsl.chat'
   )
@@ -57,6 +69,9 @@ export function loadEnv(): Env {
     openrouterApiKey: optional(process.env.OPENROUTER_API_KEY),
     openrouterAppUrl: process.env.OPENROUTER_APP_URL?.trim() || 'http://localhost:5173',
     openrouterAppTitle: process.env.OPENROUTER_APP_TITLE?.trim() || 'Shader Oracle',
+    clerkSecretKey,
+    clerkPublishableKey: optional(process.env.CLERK_PUBLISHABLE_KEY),
+    clerkAuthRequired: boolFromEnv('CLERK_AUTH_REQUIRED', Boolean(clerkSecretKey)),
     defaultModel: process.env.DEFAULT_MODEL?.trim() || 'gpt-5-mini',
     openrouterDefaultModel:
       process.env.OPENROUTER_DEFAULT_MODEL?.trim() ||

@@ -1,6 +1,7 @@
 import type { CaptureRequest, CompileResultRequest, RepairRequest } from '@shader-oracle/shared';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from './context.js';
+import { canAccessOwner } from './auth.js';
 import { repairOnce } from '../services/repairLoop.js';
 
 const MAX_CAPTURE_FRAMES = 3;
@@ -22,6 +23,7 @@ export async function registerAttemptRoutes(
     async (request, reply) => {
       const attempt = await context.repository.getAttempt(request.params.attemptId);
       if (!attempt) return reply.code(404).send({ ok: false, error: 'attempt not found' });
+      if (!canAccessOwner(context, request, reply, attempt.run.userId)) return;
 
       const body = request.body;
       if (typeof body?.ok !== 'boolean' || typeof body.compileLog !== 'string') {
@@ -41,6 +43,7 @@ export async function registerAttemptRoutes(
     async (request, reply) => {
       const previous = await context.repository.getAttempt(request.params.attemptId);
       if (!previous) return reply.code(404).send({ ok: false, error: 'attempt not found' });
+      if (!canAccessOwner(context, request, reply, previous.run.userId)) return;
 
       const compileLog = request.body?.compileLog?.trim() || previous.compileLog || '';
       const fragment = request.body?.fragment?.trim() || previous.fragment;
@@ -87,6 +90,7 @@ export async function registerAttemptRoutes(
     async (request, reply) => {
       const attempt = await context.repository.getAttempt(request.params.attemptId);
       if (!attempt) return reply.code(404).send({ ok: false, error: 'attempt not found' });
+      if (!canAccessOwner(context, request, reply, attempt.run.userId)) return;
 
       const frames = Array.isArray(request.body?.frames) ? request.body.frames : [];
       const cleaned = frames

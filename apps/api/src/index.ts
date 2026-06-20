@@ -1,6 +1,7 @@
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
+import type { FastifyRequest } from 'fastify';
 import { createRepository } from './db/repository.js';
 import { loadEnv } from './env.js';
 import { registerAttemptRoutes } from './routes/attempts.js';
@@ -13,6 +14,10 @@ import { createModelClient } from './services/modelClient.js';
 import { getRateLimitOptions } from './util/rateLimit.js';
 
 const env = loadEnv();
+if (env.clerkAuthRequired && !env.clerkSecretKey) {
+  throw new Error('CLERK_SECRET_KEY is required when CLERK_AUTH_REQUIRED=true');
+}
+
 const app = Fastify({
   logger: true,
   bodyLimit: 5 * 1024 * 1024,
@@ -29,6 +34,9 @@ await app.register(cors, {
 });
 
 await app.register(rateLimit, getRateLimitOptions(env));
+
+const clerk = env.clerkSecretKey ? await import('@clerk/fastify') : undefined;
+if (clerk) await app.register(clerk.clerkPlugin);
 
 app.setErrorHandler((error, request, reply) => {
   request.log.error({ err: error }, 'request failed');
@@ -53,6 +61,15 @@ const context = {
   env,
   repository: createRepository(env),
   modelClient: createModelClient(env),
+  auth: {
+    enabled: Boolean(clerk),
+    required: env.clerkAuthRequired,
+    getUserId(request: FastifyRequest) {
+      if (!clerk) return undefined;
+      const auth = clerk.getAuth(request);
+      return auth.isAuthenticated ? (auth.userId ?? undefined) : undefined;
+    },
+  },
 };
 
 await registerHealthRoutes(app);

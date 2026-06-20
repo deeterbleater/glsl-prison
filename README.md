@@ -30,9 +30,24 @@ Copy `apps/web/.env.example` to `apps/web/.env` and set:
 
 ```txt
 VITE_API_BASE_URL=https://api.ufotoken.app
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_dG91Z2gtZWFyd2lnLTkuY2xlcmsuYWNjb3VudHMuZGV2JA
 ```
 
 When running the frontend on localhost without this variable, it automatically uses `http://localhost:8080`. Hosted builds default to `https://api.ufotoken.app`.
+
+## Authentication
+
+The frontend uses Clerk for sign-in, sign-up, and the account menu. Set `VITE_CLERK_PUBLISHABLE_KEY` in `apps/web/.env` locally and in Vercel for `https://glsl.chat`.
+
+The API verifies Clerk session tokens when `CLERK_SECRET_KEY` is configured. With the secret present, shader generation, compile reporting, repair, capture upload, judging, and publishing require a signed-in user; public model listing and public share pages stay readable.
+
+```txt
+CLERK_PUBLISHABLE_KEY=pk_test_dG91Z2gtZWFyd2lnLTkuY2xlcmsuYWNjb3VudHMuZGV2JA
+CLERK_SECRET_KEY=<private Clerk secret key>
+CLERK_AUTH_REQUIRED=true
+```
+
+Keep Clerk keys in ignored env files or host/Vercel environment variables only.
 
 ## Model Provider
 

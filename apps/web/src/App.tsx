@@ -5,6 +5,7 @@ import type {
   ReasoningEffort,
   RunDto,
 } from '@shader-oracle/shared';
+import { SignInButton, SignUpButton, UserButton } from '@clerk/react';
 import {
   AlertTriangle,
   Code2,
@@ -111,6 +112,12 @@ const PROMPT_EXAMPLES = [
 ];
 
 type AppMode = 'home' | 'share';
+
+export type AuthState = {
+  enabled: boolean;
+  loaded: boolean;
+  signedIn: boolean;
+};
 
 type UserMessage = {
   id: string;
@@ -237,6 +244,34 @@ function setAssistantMessage(
         ? { ...message, ...update }
         : message,
     ),
+  );
+}
+
+function AuthControls({ auth }: { auth: AuthState }) {
+  if (!auth.enabled) return null;
+  if (!auth.loaded) return <div className="authControls disabled">Loading account</div>;
+
+  if (auth.signedIn) {
+    return (
+      <div className="authControls">
+        <UserButton />
+      </div>
+    );
+  }
+
+  return (
+    <div className="authControls">
+      <SignInButton mode="modal">
+        <button type="button" className="authAction">
+          Sign in
+        </button>
+      </SignInButton>
+      <SignUpButton mode="modal">
+        <button type="button" className="authAction primary">
+          Sign up
+        </button>
+      </SignUpButton>
+    </div>
   );
 }
 
@@ -482,7 +517,7 @@ function AssistantShaderMessage({
   );
 }
 
-function HomePage() {
+function HomePage({ auth }: { auth: AuthState }) {
   const processedAttempts = useRef(new Set<string>());
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const [input, setInput] = useState('');
@@ -496,6 +531,7 @@ function HomePage() {
   const [error, setError] = useState<string>();
 
   const hasChatStarted = messages.length > 0;
+  const authBlocksGeneration = auth.enabled && (!auth.loaded || !auth.signedIn);
 
   useEffect(() => {
     const forked = window.localStorage.getItem('shader-oracle-fork');
@@ -656,6 +692,11 @@ function HomePage() {
   async function sendPrompt(promptOverride?: string) {
     const prompt = (promptOverride ?? input).trim();
     if (!prompt || busy) return;
+    if (authBlocksGeneration) {
+      setError('Sign in to generate shaders.');
+      return;
+    }
+
     const model = selectedModel.trim() || DEFAULT_MODEL;
     const modelName = modelDisplayLabel(model, models);
 
@@ -732,6 +773,7 @@ function HomePage() {
           glsl.chat
         </a>
         <span>shader-only model output</span>
+        <AuthControls auth={auth} />
       </header>
 
       {!hasChatStarted ? (
@@ -750,7 +792,7 @@ function HomePage() {
             featuredModelIds={featuredModelIds}
             reasoningEffort={reasoningEffort}
             onReasoningChange={setReasoningEffort}
-            disabled={busy}
+            disabled={busy || authBlocksGeneration}
           />
           <div className="promptChips">
             {PROMPT_EXAMPLES.map((example) => (
@@ -792,7 +834,7 @@ function HomePage() {
               featuredModelIds={featuredModelIds}
               reasoningEffort={reasoningEffort}
               onReasoningChange={setReasoningEffort}
-              disabled={busy || Boolean(pendingCompile)}
+              disabled={busy || Boolean(pendingCompile) || authBlocksGeneration}
             />
           </div>
         </section>
@@ -807,7 +849,7 @@ function HomePage() {
   );
 }
 
-function SharePage({ runId }: { runId: string }) {
+function SharePage({ runId, auth }: { runId: string; auth: AuthState }) {
   const [run, setRun] = useState<RunDto>();
   const [error, setError] = useState<string>();
 
@@ -840,24 +882,27 @@ function SharePage({ runId }: { runId: string }) {
         <a href="/" className="brandMark">
           glsl.chat
         </a>
-        <button
-          type="button"
-          className="forkButton"
-          onClick={() => {
-            window.localStorage.setItem(
-              'shader-oracle-fork',
-              JSON.stringify({
-                prompt: run.prompt,
-                fragment: attempt.fragment,
-                model: attempt.model,
-              }),
-            );
-            window.location.href = '/';
-          }}
-        >
-          <GitFork size={16} />
-          Fork
-        </button>
+        <div className="headerActions">
+          <button
+            type="button"
+            className="forkButton"
+            onClick={() => {
+              window.localStorage.setItem(
+                'shader-oracle-fork',
+                JSON.stringify({
+                  prompt: run.prompt,
+                  fragment: attempt.fragment,
+                  model: attempt.model,
+                }),
+              );
+              window.location.href = '/';
+            }}
+          >
+            <GitFork size={16} />
+            Fork
+          </button>
+          <AuthControls auth={auth} />
+        </div>
       </header>
 
       <section className="shareTranscript">
@@ -886,7 +931,11 @@ function SharePage({ runId }: { runId: string }) {
   );
 }
 
-export default function App() {
+export default function App({ auth }: { auth: AuthState }) {
   const route = currentRoute();
-  return route.mode === 'share' && route.runId ? <SharePage runId={route.runId} /> : <HomePage />;
+  return route.mode === 'share' && route.runId ? (
+    <SharePage runId={route.runId} auth={auth} />
+  ) : (
+    <HomePage auth={auth} />
+  );
 }

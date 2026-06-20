@@ -1,6 +1,7 @@
 import type { GenerateRequest } from '@shader-oracle/shared';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from './context.js';
+import { requireUserId } from './auth.js';
 import { generateWithVerification } from '../services/repairLoop.js';
 
 function charLimitFromRequest(body: GenerateRequest): number {
@@ -44,6 +45,9 @@ export async function registerGenerateRoutes(
       return reply.code(400).send({ ok: false, error: 'only fragment mode is supported' });
     }
 
+    const userId = requireUserId(context, request, reply);
+    if (context.auth.required && !userId) return;
+
     let verified;
     try {
       verified = await generateWithVerification({
@@ -62,6 +66,7 @@ export async function registerGenerateRoutes(
     }
 
     const { attempt } = await context.repository.createRunWithAttempt({
+      userId,
       prompt,
       fragment: verified.fragment,
       mode: 'fragment',

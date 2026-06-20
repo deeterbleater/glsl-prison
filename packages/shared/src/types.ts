@@ -43,6 +43,7 @@ export type AttemptDto = {
 
 export type RunDto = {
   id: string;
+  userId?: string;
   prompt: string;
   mode: ShaderMode;
   model?: string;
